@@ -11,6 +11,16 @@ extension URL {
     ///
     /// Returns `nil` if the URL cannot be decomposed into components.
     var normalized: URL? {
+        let s = absoluteString
+        // Fast path: skip the URLComponents allocation when the URL is already in normal form.
+        // This covers the common case of well-formed http/https URLs with lowercase scheme+host,
+        // no fragment, no trailing slash, and no explicit default port.
+        let hasFragment = s.contains("#")
+        let hasTrailingSlash = s.count > 1 && s.last == "/"
+        let hasUppercase = s.contains(where: \.isUppercase)
+        let hasDefaultPort = s.hasPrefix("http:") && (s.contains(":80/") || s.hasSuffix(":80"))
+                          || s.hasPrefix("https:") && (s.contains(":443/") || s.hasSuffix(":443"))
+        guard hasFragment || hasTrailingSlash || hasUppercase || hasDefaultPort else { return self }
         guard var c = URLComponents(url: self, resolvingAgainstBaseURL: true) else { return nil }
         c.scheme = c.scheme?.lowercased()
         c.host = c.host?.lowercased()

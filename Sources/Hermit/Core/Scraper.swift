@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSoup
 import Logging
 
 private let logger = Logger(label: "Hermit.Scraper")
@@ -36,6 +37,19 @@ struct Scraper: Sendable {
             throw HermitError.parsing(url, underlying: MissingBodyError())
         }
         return try await build(url: url, statusCode: result.statusCode, html: body, configuration: configuration)
+    }
+
+    /// Builds a ``ScrapedPage`` from pre-fetched HTML, skipping the HTTP request.
+    ///
+    /// Used by ``Hermit/crawlAndScrape(_:crawl:scrape:)`` to reuse bodies already collected
+    /// during the crawl phase, halving the number of network round-trips.
+    func scrapeFromHTML(
+        _ url: URL,
+        html: String,
+        statusCode: Int,
+        configuration: ScrapeConfiguration
+    ) async throws -> ScrapedPage {
+        return try await build(url: url, statusCode: statusCode, html: html, configuration: configuration)
     }
 
     /// Scrapes a collection of URLs concurrently and streams results as they complete.
@@ -88,20 +102,19 @@ struct Scraper: Sendable {
         let metadata = HTMLParser.extractMetadata(from: doc, base: url)
         logger.trace("Metadata extracted", metadata: ["url": "\(url)", "title": "\(metadata.title ?? "nil")"])
 
-        if configuration.outputMarkdown {
-            logger.trace("Converting HTML to Markdown", metadata: ["url": "\(url)"])
-        }
-        // Markdown conversion is optional and potentially expensive — only run it when requested.
-        let markdown: String? = configuration.outputMarkdown
-            ? try markdownConverter.convert(html: html, baseURL: url, options: configuration.markdown)
-            : nil
-
         // Run each named CSS selector and capture the first matched element's text content.
+        // Extractions run before markdown conversion so the document is unmodified when queried.
         var extractions: [String: String] = [:]
         for (key, selector) in configuration.extractions {
             logger.trace("Running extraction", metadata: ["url": "\(url)", "key": "\(key)", "selector": "\(selector)"])
             extractions[key] = try? doc.select(selector).first()?.text()
         }
+
+        // Pass the already-parsed document to avoid a second SwiftSoup parse for markdown.
+        // Markdown conversion is optional and potentially expensive — only run it when requested.
+        let markdown: String? = configuration.outputMarkdown
+            ? try markdownConverter.convert(document: doc, baseURL: url, options: configuration.markdown)
+            : nil
 
         var page = ScrapedPage(
             url: url,

@@ -19,6 +19,18 @@ struct Crawler: Sendable {
     /// Optional rate limiter; `nil` means requests are sent at full speed.
     let rateLimiter: RateLimiter?
 
+    /// When `true`, the raw HTML body is kept in ``CrawledPage/html`` after fetching.
+    ///
+    /// Used by ``Hermit/crawlAndScrape(_:crawl:scrape:)`` so the scrape phase can reuse
+    /// the already-fetched body without a second HTTP request.
+    let captureHTML: Bool
+
+    init(httpClient: HermitHTTPClient, rateLimiter: RateLimiter?, captureHTML: Bool = false) {
+        self.httpClient = httpClient
+        self.rateLimiter = rateLimiter
+        self.captureHTML = captureHTML
+    }
+
     /// Returns an `AsyncThrowingStream` that emits one ``CrawledPage`` per fetched URL.
     ///
     /// The stream ends naturally when the frontier is exhausted or ``CrawlConfiguration/maxPages``
@@ -119,7 +131,7 @@ struct Crawler: Sendable {
                 depth: depth,
                 statusCode: result.statusCode,
                 outboundLinks: result.links,
-                crawledAt: Date(),
+                html: captureHTML ? result.body : nil,
                 error: nil
             )
         } catch {
@@ -129,7 +141,7 @@ struct Crawler: Sendable {
                 depth: depth,
                 statusCode: nil,
                 outboundLinks: [],
-                crawledAt: Date(),
+                html: nil,
                 error: error
             )
         }

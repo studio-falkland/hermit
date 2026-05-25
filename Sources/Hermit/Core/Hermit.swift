@@ -299,7 +299,8 @@ public final class Hermit: Sendable {
         let rateLimiter = crawlConfig.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
         let crawler = Crawler(
             httpClient: HermitHTTPClient(client: httpClient, config: crawlConfig.network),
-            rateLimiter: rateLimiter
+            rateLimiter: rateLimiter,
+            captureHTML: true
         )
         let scraper = Scraper(
             httpClient: HermitHTTPClient(client: httpClient, config: scrapeConfig.network),
@@ -319,7 +320,11 @@ public final class Hermit: Sendable {
                     logger.debug("crawlAndScrape phase 2: scraping", metadata: ["pageCount": "\(crawled.count)"])
                     try await withThrowingTaskGroup(of: ScrapedPage.self) { group in
                         for page in crawled {
-                            group.addTask { try await scraper.scrape(page.url, configuration: scrapeConfig) }
+                            if let html = page.html, let statusCode = page.statusCode {
+                                group.addTask { try await scraper.scrapeFromHTML(page.url, html: html, statusCode: statusCode, configuration: scrapeConfig) }
+                            } else {
+                                group.addTask { try await scraper.scrape(page.url, configuration: scrapeConfig) }
+                            }
                         }
                         for try await scraped in group {
                             continuation.yield(scraped)

@@ -18,7 +18,7 @@ import Foundation
 /// ```swift
 /// let pattern = try URLPattern(userProvidedRegex)
 /// ```
-public struct URLPattern: Sendable, ExpressibleByStringLiteral {
+public struct URLPattern: @unchecked Sendable, ExpressibleByStringLiteral {
     /// The raw regular-expression string this pattern was created from.
     public let rawValue: String
 
@@ -27,6 +27,10 @@ public struct URLPattern: Sendable, ExpressibleByStringLiteral {
     /// `Regex<AnyRegexOutput>` is the type produced when compiling a pattern from a
     /// string at runtime. It is part of the Swift standard library and requires no
     /// additional imports, making `URLPattern` compatible with Linux out of the box.
+    ///
+    /// `URLPattern` is `@unchecked Sendable` because `Regex<AnyRegexOutput>`'s conditional
+    /// `Sendable` conformance is not visible to the compiler in all Swift versions. The struct
+    /// is safe: all properties are immutable `let`s, and regex matching is a read-only operation.
     private let regex: Regex<AnyRegexOutput>
 
     /// Creates a `URLPattern` from a regular-expression string, throwing if the pattern is invalid.
@@ -50,7 +54,7 @@ public struct URLPattern: Sendable, ExpressibleByStringLiteral {
     /// Returns `true` if this pattern matches anywhere in the URL's absolute string.
     ///
     /// - Parameter url: The URL to test.
-    public func matches(_ url: URL) -> Bool {
+    public func matches(_ url: borrowing URL) -> Bool {
         url.absoluteString.firstMatch(of: regex) != nil
     }
 }

@@ -83,13 +83,14 @@ struct HermitHTTPClient: Sendable {
         switch mode {
         case .crawl:
             // Collect up to 2 MB — enough for any realistic HTML page.
-            // The body is only used to extract links; it is not stored on FetchResult.
+            // The body is returned so callers that need it (e.g. crawlAndScrape) can reuse it
+            // without a second HTTP request.
             let buffer = try await response.body.collect(upTo: 2 * 1024 * 1024)
             let body = String(buffer: buffer)
             logger.trace("Crawl response received", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
             let links = HTMLParser.extractLinks(from: body, base: url)
             logger.debug("Crawl fetch complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "links": "\(links.count)"])
-            return FetchResult(url: url, statusCode: Int(response.status.code), body: nil, links: links)
+            return FetchResult(url: url, statusCode: Int(response.status.code), body: body, links: links)
 
         case .scrape:
             // Collect up to the configured limit so callers get the full page content.

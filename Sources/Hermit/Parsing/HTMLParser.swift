@@ -27,9 +27,15 @@ enum HTMLParser {
             logger.trace("Failed to parse HTML for link extraction", metadata: ["base": "\(base)"])
             return []
         }
+        return extractLinks(from: doc, base: base)
+    }
+
+    /// Extracts and normalizes all anchor hrefs from an already-parsed document.
+    ///
+    /// Use this overload when a `Document` is already available to avoid re-parsing from HTML.
+    static func extractLinks(from doc: Document, base: URL) -> [URL] {
         guard let anchors = try? doc.select("a[href]") else { return [] }
         let links: [URL] = anchors.compactMap { anchor in
-            // SwiftSoup's "abs:href" attribute resolves relative URLs automatically.
             guard let href = try? anchor.attr("abs:href"), !href.isEmpty else { return nil }
             return URL(string: href)?.normalized
         }

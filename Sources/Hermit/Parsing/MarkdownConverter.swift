@@ -4,7 +4,7 @@ import Logging
 
 private let logger = Logger(label: "Hermit.MarkdownConverter")
 
-/// A type that converts a raw HTML string into a Markdown string.
+/// A type that converts a parsed HTML document into a Markdown string.
 ///
 /// Hermit ships with ``DefaultMarkdownConverter``. Provide a custom implementation to
 /// ``Hermit/init(configuration:eventLoopGroupProvider:processors:markdownConverter:)`` to
@@ -12,7 +12,7 @@ private let logger = Logger(label: "Hermit.MarkdownConverter")
 ///
 /// ```swift
 /// struct MyConverter: MarkdownConverter {
-///     func convert(html: String, baseURL: URL, options: MarkdownOptions) throws -> String {
+///     func convert(document: Document, baseURL: URL, options: MarkdownOptions) throws -> String {
 ///         // custom logic
 ///     }
 /// }
@@ -20,22 +20,37 @@ private let logger = Logger(label: "Hermit.MarkdownConverter")
 /// let hermit = Hermit(markdownConverter: MyConverter())
 /// ```
 public protocol MarkdownConverter: Sendable {
-    /// Converts an HTML string into Markdown.
+    /// Converts an already-parsed HTML document to Markdown.
+    ///
+    /// Prefer this over the `html:` convenience when you already hold a parsed `Document`
+    /// (e.g. from ``HTMLParser/parse(_:url:)``), to avoid a redundant SwiftSoup parse.
     ///
     /// - Parameters:
-    ///   - html: The raw HTML to convert.
+    ///   - document: The parsed HTML document to convert.
     ///   - baseURL: The page's URL, used to resolve relative links and images to absolute URLs.
-    ///   - options: Controls which structural elements are stripped before conversion.
+    ///   - options: Controls which structural elements are suppressed before conversion.
     /// - Returns: A Markdown string.
-    /// - Throws: Any error encountered during parsing or conversion.
-    func convert(html: String, baseURL: URL, options: MarkdownOptions) throws -> String
+    /// - Throws: Any error encountered during conversion.
+    func convert(document: Document, baseURL: URL, options: MarkdownOptions) throws -> String
+}
+
+public extension MarkdownConverter {
+    /// Convenience that parses `html` then delegates to ``convert(document:baseURL:options:)``.
+    ///
+    /// Use this when you only have a raw HTML string. When you already hold a parsed
+    /// `Document` (e.g. from ``HTMLParser/parse(_:url:)``), prefer calling
+    /// ``convert(document:baseURL:options:)`` directly to avoid a redundant parse.
+    func convert(html: String, baseURL: URL, options: MarkdownOptions) throws -> String {
+        let doc = try SwiftSoup.parse(html, baseURL.absoluteString)
+        return try convert(document: doc, baseURL: baseURL, options: options)
+    }
 }
 
 /// The default HTML-to-Markdown converter included with Hermit.
 ///
-/// Parses the HTML with SwiftSoup, optionally strips structural elements (nav, header, footer,
-/// aside), removes scripts and styles, then recursively walks the DOM tree converting each
-/// element to its Markdown equivalent.
+/// Accepts an already-parsed SwiftSoup `Document`, optionally suppresses structural elements
+/// (nav, header, footer, aside), skips scripts and styles, then recursively walks the DOM tree
+/// converting each element to its Markdown equivalent.
 ///
 /// Supported elements: headings (h1–h6), paragraphs, bold, italic, inline code, fenced code
 /// blocks, blockquotes, ordered and unordered lists, links, images, and tables.
@@ -43,19 +58,22 @@ public protocol MarkdownConverter: Sendable {
 public struct DefaultMarkdownConverter: MarkdownConverter {
     public init() {}
 
-    /// Parses and converts the HTML to Markdown, applying structural stripping options first.
-    public func convert(html: String, baseURL: URL, options: MarkdownOptions) throws -> String {
+    /// Converts the document to Markdown.
+    ///
+    /// Called from ``Scraper`` after metadata and CSS extractions are already complete,
+    /// so mutating the document here is safe — no further queries run against it before
+    /// it is stored in ``ScrapedPage``.
+    public func convert(document: Document, baseURL: URL, options: MarkdownOptions) throws -> String {
         logger.debug("Converting HTML to Markdown", metadata: ["url": "\(baseURL)"])
-        let doc = try SwiftSoup.parse(html, baseURL.absoluteString)
 
         if !options.denyTags.isEmpty {
-            try doc.select(options.denyTags.joined(separator: ", ")).remove()
+            try document.select(options.denyTags.joined(separator: ", ")).remove()
         }
         logger.trace("Elements stripped", metadata: ["url": "\(baseURL)", "selectors": "\(options.denyTags)"])
         // Always remove non-content elements that would produce garbage in Markdown.
-        try doc.select("script, style, noscript").remove()
+        try document.select("script, style, noscript").remove()
 
-        guard let body = doc.body() else { return "" }
+        guard let body = document.body() else { return "" }
         logger.trace("Walking DOM for Markdown output", metadata: ["url": "\(baseURL)"])
         var output = convertNode(body, options: options)
             .trimmingCharacters(in: .whitespacesAndNewlines)

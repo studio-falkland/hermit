@@ -43,6 +43,15 @@ let benchmarks: @Sendable () -> Void = {
     // (requires kernel perf counters) — both can hang BenchmarkTool on macOS
     // when system jemalloc and the target OS version don't match.
     Benchmark.defaultConfiguration = .init(
+        metrics: [
+            .instructions,
+            .mallocCountTotal,
+            .peakMemoryResident,
+            .throughput,
+            .wallClock,
+            .threads,
+            .threadsRunning,
+        ],
         warmupIterations: 3,
         maxDuration: .seconds(5),
         maxIterations: 1_000

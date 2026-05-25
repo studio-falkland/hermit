@@ -3,9 +3,9 @@ import Foundation
 /// The result of crawling a single URL.
 ///
 /// A `CrawledPage` records the outcome of one fetch during a crawl — the discovered
-/// outbound links, the HTTP status, and any error that occurred. It does not contain
-/// the full HTML body; use ``ScrapedPage`` (via ``Hermit/scrape(_:configure:)`` or
-/// ``Hermit/crawlAndScrape(_:crawl:scrape:)``) for that.
+/// outbound links, the HTTP status, and any error that occurred. Use ``ScrapedPage``
+/// (via ``Hermit/scrape(_:configure:)`` or ``Hermit/crawlAndScrape(_:crawl:scrape:)``)
+/// when you need the full parsed HTML body and metadata.
 ///
 /// If ``error`` is non-nil, ``statusCode`` and ``outboundLinks`` may be empty.
 public struct CrawledPage: Sendable {
@@ -26,8 +26,13 @@ public struct CrawledPage: Sendable {
     /// ``CrawlConfiguration`` rules (domain policy, filters, depth limit, etc.).
     public let outboundLinks: [URL]
 
-    /// The date and time at which this page was fetched.
-    public let crawledAt: Date
+    /// The raw HTML body of the page, or `nil` when the crawler was not configured to capture it.
+    ///
+    /// Populated only in ``Hermit/crawlAndScrape(_:crawl:scrape:)``, where the body collected
+    /// during the crawl phase is reused by the scrape phase to avoid a second HTTP request.
+    /// Always `nil` in pages returned by ``Hermit/crawlStream(_:configure:)`` and
+    /// ``Hermit/crawl(_:configure:)``.
+    public let html: String?
 
     /// The error that occurred during the fetch, or `nil` if the request succeeded.
     public let error: (any Error)?
