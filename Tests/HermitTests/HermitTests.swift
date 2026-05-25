@@ -177,7 +177,7 @@ struct MarkdownConverterTests {
     @Test func stripsNav() throws {
         let html = "<nav><a href='/'>Home</a></nav><p>Content</p>"
         var options = MarkdownOptions.default
-        options.ignoreNav = true
+        options.denyTags = ["nav"]
         let md = try converter.convert(html: html, baseURL: base, options: options)
         #expect(!md.contains("Home"))
         #expect(md.contains("Content"))
@@ -186,7 +186,7 @@ struct MarkdownConverterTests {
     @Test func stripsFooter() throws {
         let html = "<p>Content</p><footer>Copyright</footer>"
         var options = MarkdownOptions.default
-        options.ignoreFooter = true
+        options.denyTags = ["footer"]
         let md = try converter.convert(html: html, baseURL: base, options: options)
         #expect(!md.contains("Copyright"))
         #expect(md.contains("Content"))
