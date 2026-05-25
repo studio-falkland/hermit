@@ -2,15 +2,15 @@ import Foundation
 
 /// A compiled regular-expression pattern matched against absolute URL strings.
 ///
-/// `URLPattern` is used in ``CrawlConfiguration/whitelist`` and ``CrawlConfiguration/blacklist``
+/// `URLPattern` is used in ``CrawlConfiguration/allowlist`` and ``CrawlConfiguration/denylist``
 /// to include or exclude URLs from a crawl. The pattern is matched against the full absolute
 /// URL string (e.g. `"https://example.com/blog/post-1"`).
 ///
 /// You can create patterns from string literals, which is the most common usage:
 ///
 /// ```swift
-/// crawlConfig.blacklist = ["/tag/", "/author/", "\\?s="]
-/// crawlConfig.whitelist = ["/blog/\\d{4}/"]
+/// crawlConfig.denylist = ["/tag/", "/author/", "\\?s="]
+/// crawlConfig.allowlist = ["/blog/\\d{4}/"]
 /// ```
 ///
 /// For patterns built from user input at runtime, use the throwing initialiser:

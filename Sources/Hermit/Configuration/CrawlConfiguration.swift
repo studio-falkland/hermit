@@ -10,7 +10,7 @@
 ///     $0.stayOnDomain = true
 ///     $0.concurrency = 16
 ///     $0.requestsPerSecond = 10
-///     $0.blacklist = ["/tag/", "/author/"]
+///     $0.denylist = ["/tag/", "/author/"]
 /// }
 /// ```
 public struct CrawlConfiguration: Sendable {
@@ -52,15 +52,15 @@ public struct CrawlConfiguration: Sendable {
 
     /// URL patterns that restrict which pages are visited.
     ///
-    /// When non-empty, a URL must match at least one whitelist pattern to be enqueued.
-    /// Blacklist rules take priority over whitelist rules. Defaults to `[]` (no restriction).
-    public var whitelist: [URLPattern] = []
+    /// When non-empty, a URL must match at least one allowlist pattern to be enqueued.
+    /// Denylist rules take priority over allowlist rules. Defaults to `[]` (no restriction).
+    public var allowlist: [URLPattern] = []
 
     /// URL patterns that prevent matching pages from being visited.
     ///
-    /// A URL matching any blacklist pattern is never enqueued, even if it also matches
-    /// a whitelist pattern. Defaults to `[]` (nothing blocked).
-    public var blacklist: [URLPattern] = []
+    /// A URL matching any denylist pattern is never enqueued, even if it also matches
+    /// an allowlist pattern. Defaults to `[]` (nothing blocked).
+    public var denylist: [URLPattern] = []
 
     /// When `true`, Hermit fetches and respects each host's `robots.txt` before crawling.
     ///

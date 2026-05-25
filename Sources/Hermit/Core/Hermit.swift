@@ -37,7 +37,7 @@ private let logger = Logger(label: "Hermit")
 ///     $0.maxDepth = 3
 ///     $0.maxPages = 500
 ///     $0.stayOnDomain = true
-///     $0.blacklist = ["/tag/"]
+///     $0.denylist = ["/tag/"]
 /// }
 ///
 /// // Stream pages as they are discovered
@@ -274,7 +274,7 @@ public final class Hermit: Sendable {
     /// ```swift
     /// for try await page in hermit.crawlAndScrape(
     ///     "https://docs.example.com",
-    ///     crawl: { $0.maxDepth = 3; $0.whitelist = ["/docs/"] },
+    ///     crawl: { $0.maxDepth = 3; $0.allowlist = ["/docs/"] },
     ///     scrape: { $0.outputMarkdown = true }
     /// ) {
     ///     index(url: page.url, content: page.markdown)

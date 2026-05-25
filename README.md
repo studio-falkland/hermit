@@ -64,7 +64,7 @@ let result = try await hermit.crawl("https://docs.example.com") {
     $0.maxPages = 1_000
     $0.concurrency = 16
     $0.requestsPerSecond = 10
-    $0.blacklist = ["/tag/", "/author/"]
+    $0.denylist = ["/tag/", "/author/"]
 }
 
 print("\(result.visitedURLs.count) pages in \(result.duration)s")
@@ -112,7 +112,7 @@ for try await page in hermit.crawlAndScrape(
     "https://docs.example.com",
     crawl: {
         $0.maxDepth = 3
-        $0.whitelist = ["/docs/"]
+        $0.allowlist = ["/docs/"]
     },
     scrape: {
         $0.outputMarkdown = true
@@ -125,12 +125,12 @@ for try await page in hermit.crawlAndScrape(
 
 ### Filtering
 
-Whitelist and blacklist accept regular expressions. Blacklist takes priority over whitelist.
+Allowlist and denylist accept regular expressions. Denylist takes priority over allowlist.
 
 ```swift
 hermit.crawl("https://example.com") {
-    $0.whitelist = ["/blog/\\d{4}/"]
-    $0.blacklist = ["/tag/", "\\?s="]
+    $0.allowlist = ["/blog/\\d{4}/"]
+    $0.denylist = ["/tag/", "\\?s="]
 }
 ```
 

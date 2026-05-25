@@ -55,7 +55,7 @@ actor CrawlFrontier {
     ///   - config: The crawl configuration that governs depth, page limits, and filtering.
     init(seed: URL, config: CrawlConfiguration) {
         self.config = config
-        self.urlFilter = URLFilter(whitelist: config.whitelist, blacklist: config.blacklist)
+        self.urlFilter = URLFilter(allowlist: config.allowlist, denylist: config.denylist)
         self.domainPolicy = DomainPolicy(
             seedHost: seed.host?.lowercased() ?? "",
             stayOnDomain: config.stayOnDomain,

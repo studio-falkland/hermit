@@ -1,33 +1,33 @@
 import Foundation
 import Logging
 
-/// Applies whitelist and blacklist ``URLPattern`` rules to determine whether a URL should be visited.
+/// Applies allowlist and denylist ``URLPattern`` rules to determine whether a URL should be visited.
 ///
 /// The evaluation order is fixed:
-/// 1. If the URL matches **any** blacklist pattern → blocked.
-/// 2. If the whitelist is non-empty and the URL matches **none** of its patterns → blocked.
+/// 1. If the URL matches **any** denylist pattern → blocked.
+/// 2. If the allowlist is non-empty and the URL matches **none** of its patterns → blocked.
 /// 3. Otherwise → allowed.
 ///
-/// Blacklist always takes priority over whitelist.
+/// Denylist always takes priority over allowlist.
 private let logger = Logger(label: "Hermit.URLFilter")
 
 struct URLFilter: Sendable {
     /// Patterns that restrict crawling to matching URLs only. Empty means "no restriction".
-    let whitelist: [URLPattern]
+    let allowlist: [URLPattern]
 
     /// Patterns that unconditionally block matching URLs.
-    let blacklist: [URLPattern]
+    let denylist: [URLPattern]
 
-    /// Returns `true` if the URL passes both blacklist and whitelist checks.
+    /// Returns `true` if the URL passes both denylist and allowlist checks.
     ///
     /// - Parameter url: The URL to evaluate.
     func allows(_ url: URL) -> Bool {
-        if blacklist.contains(where: { $0.matches(url) }) {
-            logger.trace("URL blocked by blacklist", metadata: ["url": "\(url)"])
+        if denylist.contains(where: { $0.matches(url) }) {
+            logger.trace("URL blocked by denylist", metadata: ["url": "\(url)"])
             return false
         }
-        if !whitelist.isEmpty, !whitelist.contains(where: { $0.matches(url) }) {
-            logger.trace("URL blocked by whitelist", metadata: ["url": "\(url)"])
+        if !allowlist.isEmpty, !allowlist.contains(where: { $0.matches(url) }) {
+            logger.trace("URL blocked by allowlist", metadata: ["url": "\(url)"])
             return false
         }
         logger.trace("URL allowed by filter", metadata: ["url": "\(url)"])

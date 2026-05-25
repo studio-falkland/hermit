@@ -25,10 +25,10 @@ struct URLPatternTests {
 
 @Suite("URLFilter")
 struct URLFilterTests {
-    @Test func blacklistBlocksURL() throws {
+    @Test func denylistBlocksURL() throws {
         let filter = URLFilter(
-            whitelist: [],
-            blacklist: [try URLPattern("/admin/")]
+            allowlist: [],
+            denylist: [try URLPattern("/admin/")]
         )
         let blocked = URL(string: "https://example.com/admin/settings")!
         let allowed = URL(string: "https://example.com/about")!
@@ -36,10 +36,10 @@ struct URLFilterTests {
         #expect(filter.allows(allowed))
     }
 
-    @Test func whitelistRestrictsToMatches() throws {
+    @Test func allowlistRestrictsToMatches() throws {
         let filter = URLFilter(
-            whitelist: [try URLPattern("/docs/")],
-            blacklist: []
+            allowlist: [try URLPattern("/docs/")],
+            denylist: []
         )
         let allowed = URL(string: "https://example.com/docs/intro")!
         let blocked = URL(string: "https://example.com/blog/post")!
@@ -47,17 +47,17 @@ struct URLFilterTests {
         #expect(!filter.allows(blocked))
     }
 
-    @Test func blacklistTakesPriorityOverWhitelist() throws {
+    @Test func denylistTakesPriorityOverAllowlist() throws {
         let filter = URLFilter(
-            whitelist: [try URLPattern("/docs/")],
-            blacklist: [try URLPattern("/docs/private/")]
+            allowlist: [try URLPattern("/docs/")],
+            denylist: [try URLPattern("/docs/private/")]
         )
         let blocked = URL(string: "https://example.com/docs/private/secret")!
         #expect(!filter.allows(blocked))
     }
 
     @Test func emptyFilterAllowsAll() {
-        let filter = URLFilter(whitelist: [], blacklist: [])
+        let filter = URLFilter(allowlist: [], denylist: [])
         let url = URL(string: "https://example.com/anything")!
         #expect(filter.allows(url))
     }
