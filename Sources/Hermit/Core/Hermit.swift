@@ -311,7 +311,7 @@ public final class Hermit: Sendable {
         )
 
         return AsyncThrowingStream { continuation in
-            Task {
+            Task { [crawlConfig, scrapeConfig] in
                 do {
                     // Phase 1: crawl all pages to build the complete URL list.
                     logger.debug("crawlAndScrape phase 1: crawling", metadata: ["seed": "\(url)"])

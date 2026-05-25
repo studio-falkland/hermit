@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
@@ -22,7 +22,8 @@ let package = Package(
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
                 .product(name: "Collections", package: "swift-collections"),
                 .product(name: "Logging", package: "swift-log"),
-            ]
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)],
         ),
         .executableTarget(
             name: "HermitCLI",

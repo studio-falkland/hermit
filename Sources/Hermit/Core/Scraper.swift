@@ -120,7 +120,6 @@ struct Scraper: Sendable {
             url: url,
             statusCode: statusCode,
             html: html,
-            document: doc,
             markdown: markdown,
             metadata: metadata,
             extractions: extractions

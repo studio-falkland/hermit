@@ -18,7 +18,7 @@ import Foundation
 /// ```swift
 /// let pattern = try URLPattern(userProvidedRegex)
 /// ```
-public struct URLPattern: @unchecked Sendable, ExpressibleByStringLiteral {
+public struct URLPattern: Sendable, ExpressibleByStringLiteral {
     /// The raw regular-expression string this pattern was created from.
     public let rawValue: String
 
@@ -28,10 +28,10 @@ public struct URLPattern: @unchecked Sendable, ExpressibleByStringLiteral {
     /// string at runtime. It is part of the Swift standard library and requires no
     /// additional imports, making `URLPattern` compatible with Linux out of the box.
     ///
-    /// `URLPattern` is `@unchecked Sendable` because `Regex<AnyRegexOutput>`'s conditional
-    /// `Sendable` conformance is not visible to the compiler in all Swift versions. The struct
-    /// is safe: all properties are immutable `let`s, and regex matching is a read-only operation.
-    private let regex: Regex<AnyRegexOutput>
+    /// `AnyRegexOutput` does not conform to `Sendable`, so the property is marked
+    /// `nonisolated(unsafe)`. This is sound: the value is an immutable `let` and
+    /// regex matching is a read-only operation.
+    private nonisolated(unsafe) let regex: Regex<AnyRegexOutput>
 
     /// Creates a `URLPattern` from a regular-expression string, throwing if the pattern is invalid.
     ///

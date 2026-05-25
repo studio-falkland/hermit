@@ -5,17 +5,13 @@ import SwiftSoup
 ///
 /// A `ScrapedPage` gives you multiple views of the same page:
 /// - ``html``: the raw response body
-/// - ``document``: the live SwiftSoup DOM, for arbitrary CSS queries
 /// - ``markdown``: a Markdown rendering of the body (when ``ScrapeConfiguration/outputMarkdown`` is `true`)
 /// - ``metadata``: structured data extracted from `<head>` tags
 /// - ``extractions``: named text values from ``ScrapeConfiguration/extractions`` selectors
 ///
-/// ## Sendability
-///
-/// `ScrapedPage` is `@unchecked Sendable` because `SwiftSoup.Document` is a reference type
-/// that does not conform to `Sendable`. The document is treated as read-only after construction
-/// and must not be mutated.
-public struct ScrapedPage: @unchecked Sendable {
+/// For arbitrary CSS queries, call ``parseDocument()`` to obtain a fresh SwiftSoup `Document`.
+/// Keep the returned document task-local and do not pass it across concurrency boundaries.
+public struct ScrapedPage: Sendable {
     /// The URL that was fetched.
     public let url: URL
 
@@ -24,12 +20,6 @@ public struct ScrapedPage: @unchecked Sendable {
 
     /// The raw UTF-8 HTML body of the response.
     public let html: String
-
-    /// The parsed SwiftSoup document.
-    ///
-    /// Use this for any CSS query that is not covered by the built-in helpers.
-    /// Do not mutate this document after construction.
-    public let document: Document
 
     /// A Markdown rendering of the page body, or `nil` if ``ScrapeConfiguration/outputMarkdown`` was `false`.
     public let markdown: String?
@@ -43,6 +33,21 @@ public struct ScrapedPage: @unchecked Sendable {
     /// matching element, or absent if no element matched.
     public let extractions: [String: String]
 
+    // MARK: DOM access
+
+    /// Parses the stored HTML and returns a fresh SwiftSoup `Document`.
+    ///
+    /// Each call performs a full SwiftSoup parse of ``html``. For multiple queries on the
+    /// same page, call this once, store the result in a local variable, and reuse it. Do
+    /// not pass the returned `Document` across concurrency boundaries — treat it as
+    /// task-local.
+    ///
+    /// - Returns: A parsed `Document`.
+    /// - Throws: A SwiftSoup error if the HTML cannot be parsed.
+    public func parseDocument() throws -> Document {
+        try HTMLParser.parse(html, url: url)
+    }
+
     // MARK: Convenience queries
 
     /// Returns all elements matching the given CSS selector.
@@ -51,7 +56,7 @@ public struct ScrapedPage: @unchecked Sendable {
     /// - Returns: A SwiftSoup `Elements` collection.
     /// - Throws: A SwiftSoup error if the selector is invalid.
     public func select(_ css: String) throws -> Elements {
-        try document.select(css)
+        try parseDocument().select(css)
     }
 
     /// Returns the trimmed text content of the first element matching the given CSS selector.
@@ -60,7 +65,7 @@ public struct ScrapedPage: @unchecked Sendable {
     /// - Returns: The text content, or `nil` if no element matched.
     /// - Throws: A SwiftSoup error if the selector is invalid.
     public func text(at css: String) throws -> String? {
-        try document.select(css).first()?.text()
+        try parseDocument().select(css).first()?.text()
     }
 
     /// Returns the value of an attribute on the first element matching the given CSS selector.
@@ -71,6 +76,6 @@ public struct ScrapedPage: @unchecked Sendable {
     /// - Returns: The attribute value, or `nil` if the element or attribute was not found.
     /// - Throws: A SwiftSoup error if the selector is invalid.
     public func attribute(_ attr: String, at css: String) throws -> String? {
-        try document.select(css).first()?.attr(attr)
+        try parseDocument().select(css).first()?.attr(attr)
     }
 }
