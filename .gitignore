@@ -1,0 +1,6 @@
+# Swift build artifacts
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
