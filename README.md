@@ -1,4 +1,8 @@
 <p align="center">
+    <img src="./Documentation/logo.svg" width="340" />
+</p>
+
+<p align="center">
   <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-5.9+-F05138?logo=swift&logoColor=white" alt="Swift 5.9+"></a>
   <a href="https://swift.org/package-manager"><img src="https://img.shields.io/badge/SPM-compatible-4BC51D?logo=swift&logoColor=white" alt="SPM Compatible"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/github/license/studio-falkland/hermit" alt="License"></a>
@@ -209,7 +213,10 @@ swift test
 
 ## Authors
 
-This library is brought to you by Studio Falkland and was developed by Lei Nelissen.
+This library is developed by Lei Nelissen at Studio Falkland.
+
+![Studio Falkland](./Documentation/falkland-logo-long-orange.svg)
+
 
 ## License
 
