@@ -1,5 +1,5 @@
 import AsyncHTTPClient
-import NIOCore
+import NIOHTTP1
 import Foundation
 import Logging
 
@@ -34,6 +34,12 @@ struct FetchResult {
     ///
     /// Non-empty only when ``FetchMode/crawl`` was used.
     let links: [URL]
+
+    /// Response HTTP headers.
+    ///
+    /// The underlying `HTTPHeaders` type is case-insensitive. Look up values with
+    /// ``NIOHTTP1/HTTPHeaders/first(name:)`` or the subscript.
+    let headers: HTTPHeaders
 }
 
 /// A lightweight wrapper around `AsyncHTTPClient.HTTPClient` that handles request
@@ -66,11 +72,13 @@ struct HermitHTTPClient: Sendable {
         var request = HTTPClientRequest(url: url.absoluteString)
         logger.debug("Fetching URL", metadata: ["url": "\(url)", "mode": "\(mode)"])
         request.headers.add(name: "User-Agent", value: config.userAgent)
+        
         // Advertise only the encodings NIO can decompress (gzip, deflate).
         // Brotli is intentionally omitted — swift-nio-extras does not support it,
         // so advertising "br" would cause servers to send bytes we cannot decode.
         request.headers.add(name: "Accept-Encoding", value: "gzip, deflate")
         logger.trace("Request headers set", metadata: ["url": "\(url)", "userAgent": "\(config.userAgent)"])
+        
         for (key, value) in config.headers {
             request.headers.add(name: key, value: value)
         }
@@ -87,17 +95,22 @@ struct HermitHTTPClient: Sendable {
             // without a second HTTP request.
             let buffer = try await response.body.collect(upTo: 2 * 1024 * 1024)
             let body = String(buffer: buffer)
+            
             logger.trace("Crawl response received", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
+            
             let links = HTMLParser.extractLinks(from: body, base: url)
             logger.debug("Crawl fetch complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "links": "\(links.count)"])
-            return FetchResult(url: url, statusCode: Int(response.status.code), body: body, links: links)
+            
+            return FetchResult(url: url, statusCode: Int(response.status.code), body: body, links: links, headers: response.headers)
 
         case .scrape:
             // Collect up to the configured limit so callers get the full page content.
             let buffer = try await response.body.collect(upTo: config.maxBodySize)
             let body = String(buffer: buffer)
+            
             logger.debug("Scrape fetch complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
-            return FetchResult(url: url, statusCode: Int(response.status.code), body: body, links: [])
+            
+            return FetchResult(url: url, statusCode: Int(response.status.code), body: body, links: [], headers: response.headers)
         }
     }
 }

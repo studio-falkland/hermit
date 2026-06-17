@@ -321,7 +321,7 @@ public final class Hermit: Sendable {
                     try await withThrowingTaskGroup(of: ScrapedPage.self) { group in
                         for page in crawled {
                             if let html = page.html, let statusCode = page.statusCode {
-                                group.addTask { try await scraper.scrapeFromHTML(page.url, html: html, statusCode: statusCode, configuration: scrapeConfig) }
+                                group.addTask { try await scraper.scrapeFromHTML(page.url, html: html, statusCode: statusCode, headers: page.responseHeaders, configuration: scrapeConfig) }
                             } else {
                                 group.addTask { try await scraper.scrape(page.url, configuration: scrapeConfig) }
                             }

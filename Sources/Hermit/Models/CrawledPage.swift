@@ -1,4 +1,5 @@
 import Foundation
+import NIOHTTP1
 
 /// The result of crawling a single URL.
 ///
@@ -36,4 +37,10 @@ public struct CrawledPage: Sendable {
 
     /// The error that occurred during the fetch, or `nil` if the request succeeded.
     public let error: (any Error)?
+
+    /// Response HTTP headers from the server.
+    ///
+    /// The underlying ``NIOHTTP1/HTTPHeaders`` type is case-insensitive to match HTTP semantics.
+    /// Look up values with ``NIOHTTP1/HTTPHeaders/first(name:)`` or the subscript.
+    public let responseHeaders: HTTPHeaders
 }

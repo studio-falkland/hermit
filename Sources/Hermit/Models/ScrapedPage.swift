@@ -1,5 +1,6 @@
 import Foundation
 import SwiftSoup
+import NIOHTTP1
 
 /// The result of scraping a single page, including parsed HTML, optional Markdown, and metadata.
 ///
@@ -32,6 +33,12 @@ public struct ScrapedPage: Sendable {
     /// Each key is a name you chose; each value is the trimmed text content of the first
     /// matching element, or absent if no element matched.
     public let extractions: [String: String]
+
+    /// Response HTTP headers from the server.
+    ///
+    /// The underlying ``NIOHTTP1/HTTPHeaders`` type is case-insensitive to match HTTP semantics.
+    /// Look up values with ``NIOHTTP1/HTTPHeaders/first(name:)`` or the subscript.
+    public let responseHeaders: HTTPHeaders
 
     // MARK: DOM access
 

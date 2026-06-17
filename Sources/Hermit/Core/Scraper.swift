@@ -1,5 +1,6 @@
 import Foundation
 import SwiftSoup
+import NIOHTTP1
 import Logging
 
 private let logger = Logger(label: "Hermit.Scraper")
@@ -36,7 +37,7 @@ struct Scraper: Sendable {
             // but is included for exhaustive guard coverage.
             throw HermitError.parsing(url, underlying: MissingBodyError())
         }
-        return try await build(url: url, statusCode: result.statusCode, html: body, configuration: configuration)
+        return try await build(url: url, statusCode: result.statusCode, html: body, headers: result.headers, configuration: configuration)
     }
 
     /// Builds a ``ScrapedPage`` from pre-fetched HTML, skipping the HTTP request.
@@ -47,9 +48,10 @@ struct Scraper: Sendable {
         _ url: URL,
         html: String,
         statusCode: Int,
+        headers: HTTPHeaders,
         configuration: ScrapeConfiguration
     ) async throws -> ScrapedPage {
-        return try await build(url: url, statusCode: statusCode, html: html, configuration: configuration)
+        return try await build(url: url, statusCode: statusCode, html: html, headers: headers, configuration: configuration)
     }
 
     /// Scrapes a collection of URLs concurrently and streams results as they complete.
@@ -94,6 +96,7 @@ struct Scraper: Sendable {
         url: URL,
         statusCode: Int,
         html: String,
+        headers: HTTPHeaders,
         configuration: ScrapeConfiguration
     ) async throws -> ScrapedPage {
         // Parse the HTML into a SwiftSoup document once; all subsequent operations reuse it.
@@ -122,7 +125,8 @@ struct Scraper: Sendable {
             html: html,
             markdown: markdown,
             metadata: metadata,
-            extractions: extractions
+            extractions: extractions,
+            responseHeaders: headers
         )
 
         // Run the page through each processor in order, passing the output of one into the next.

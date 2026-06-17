@@ -1,4 +1,5 @@
 import Foundation
+import NIOHTTP1
 import Logging
 
 /// Drives the concurrent BFS crawl using a `ThrowingTaskGroup`.
@@ -132,17 +133,19 @@ struct Crawler: Sendable {
                 statusCode: result.statusCode,
                 outboundLinks: result.links,
                 html: captureHTML ? result.body : nil,
-                error: nil
+                error: nil,
+                responseHeaders: result.headers
             )
         } catch {
             // Record the error on the page; the crawl continues with the remaining frontier.
             return CrawledPage(
                 url: url,
                 depth: depth,
-                statusCode: nil,
+                statusCode: nil as Int?,
                 outboundLinks: [],
-                html: nil,
-                error: error
+                html: nil as String?,
+                error: error,
+                responseHeaders: HTTPHeaders()
             )
         }
     }
