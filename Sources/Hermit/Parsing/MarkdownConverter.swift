@@ -49,8 +49,10 @@ public extension MarkdownConverter {
 /// The default HTML-to-Markdown converter included with Hermit.
 ///
 /// Accepts an already-parsed SwiftSoup `Document`, optionally suppresses structural elements
-/// (nav, header, footer, aside), skips scripts and styles, then recursively walks the DOM tree
-/// converting each element to its Markdown equivalent.
+/// (nav, header, footer, aside), skips scripts and styles, then uses an iterative DOM walk
+/// to convert each element to its Markdown equivalent. The iterative approach uses a
+/// heap-allocated stack instead of the CPU call stack, making it safe for deeply nested HTML
+/// that would overflow a fixed-size task stack inside a `TaskGroup`.
 ///
 /// Supported elements: headings (h1–h6), paragraphs, bold, italic, inline code, fenced code
 /// blocks, blockquotes, ordered and unordered lists, links, images, and tables.
@@ -84,23 +86,87 @@ public struct DefaultMarkdownConverter: MarkdownConverter {
         return output
     }
 
-    /// Recursively converts a DOM node to its Markdown representation.
+    /// Converts a DOM node and its entire subtree to Markdown using an iterative walk.
     ///
-    /// Text nodes return their text directly. Element nodes are converted based on their
-    /// tag name. Unrecognised tags pass through their children's output, preserving text
-    /// content without adding any Markdown syntax.
-    private func convertNode(_ node: Node, options: MarkdownOptions) -> String {
-        // Leaf text node — return its text content directly.
-        if let text = node as? TextNode { return text.text() }
-        guard let el = node as? Element else {
-            // Non-element, non-text node (e.g. comment) — recurse into children.
-            return node.getChildNodes().map { convertNode($0, options: options) }.joined()
+    /// An explicit `Array` on the heap replaces the CPU call stack. Each ``Frame`` tracks
+    /// a single node, the next child index to process, and accumulated results from already-
+    /// processed children. Text nodes are leaves that contribute their text immediately.
+    /// Element nodes push all children as new frames, then on the "exit" pass (when all
+    /// children are done) the tag-specific wrapping is applied.
+    ///
+    /// This avoids unbounded CPU stack growth, which is especially important inside
+    /// `TaskGroup` child tasks that have smaller default stacks than the main thread.
+    private func convertNode(_ root: Node, options: MarkdownOptions) -> String {
+        /// Per-node state in the explicit walk stack.
+        struct Frame {
+            let node: Node
+            /// Index of the next child to push onto the stack.
+            var nextChild: Int = 0
+            /// Converted outputs from children that have already been processed.
+            var childResults: [String] = []
         }
 
-        let tag = el.tagName().lowercased()
-        // Recursively convert all children before deciding what wrapping to apply.
-        let inner = el.getChildNodes().map { convertNode($0, options: options) }.joined()
+        var stack: [Frame] = [Frame(node: root)]
 
+        while let frame = stack.popLast() {
+            // ── Text node leaf ─────────────────────────────────────────
+            if let text = frame.node as? TextNode {
+                let content = text.text()
+                guard !stack.isEmpty else { return content }
+                stack[stack.count - 1].childResults.append(content)
+                continue
+            }
+
+            guard let el = frame.node as? Element else {
+                // Non-element, non-text node (comment, etc.) — process as generic container.
+                let children = frame.node.getChildNodes()
+                guard frame.nextChild < children.count else {
+                    // All children processed; the inner text is just the joined child results.
+                    let inner = frame.childResults.joined()
+                    guard !stack.isEmpty else { return inner }
+                    stack[stack.count - 1].childResults.append(inner)
+                    continue
+                }
+                // Push the next child (reverse order so they're processed front-to-back).
+                let child = children[children.count - 1 - frame.nextChild]
+                stack.append(Frame(node: frame.node, nextChild: frame.nextChild + 1, childResults: frame.childResults))
+                stack.append(Frame(node: child))
+                continue
+            }
+
+            // ── Element node ───────────────────────────────────────────
+            let children = el.getChildNodes()
+            guard frame.nextChild < children.count else {
+                // All children have been processed. Apply tag-specific conversion.
+                let inner = frame.childResults.joined()
+                let tag = el.tagName().lowercased()
+                let result = tagResult(for: el, tag: tag, inner: inner, options: options)
+                guard !stack.isEmpty else { return result }
+                stack[stack.count - 1].childResults.append(result)
+                continue
+            }
+
+            // Push the next child (reverse order so they're processed front-to-back).
+            let child = children[children.count - 1 - frame.nextChild]
+            stack.append(Frame(node: frame.node, nextChild: frame.nextChild + 1, childResults: frame.childResults))
+            stack.append(Frame(node: child))
+        }
+
+        fatalError("unreachable — the root node should have returned above")
+    }
+
+    /// Produces the Markdown string for a single element once its children are fully converted.
+    ///
+    /// The standard cases (headings, bold, lists, etc.) mirror the original `convertNode` switch.
+    /// List elements (`ul`, `ol`) and tables re-enter the iterative walk via ``convertNode(_:options:)``
+    /// for each child element, which is safe because each call keeps its own heap stack and
+    /// adds at most one CPU frame per list/table nesting level.
+    private func tagResult(
+        for el: Element,
+        tag: String,
+        inner: String,
+        options: MarkdownOptions
+    ) -> String {
         switch tag {
         case "h1": return "\n\n# \(inner)\n\n"
         case "h2": return "\n\n## \(inner)\n\n"
@@ -113,7 +179,6 @@ public struct DefaultMarkdownConverter: MarkdownConverter {
         case "hr": return "\n\n---\n\n"
         case "strong", "b": return "**\(inner)**"
         case "em", "i": return "_\(inner)_"
-        // Inline code unless the parent is a <pre> block, in which case pre handles the fencing.
         case "code": return el.parent()?.tagName() == "pre" ? inner : "`\(inner)`"
         case "pre": return "\n\n```\n\(inner)\n```\n\n"
         case "blockquote":
@@ -125,7 +190,6 @@ public struct DefaultMarkdownConverter: MarkdownConverter {
                 "- " + convertNode($0, options: options).trimmingCharacters(in: .whitespacesAndNewlines)
             }.joined(separator: "\n") + "\n\n"
         case "ol":
-            // Number each <li> sequentially starting at 1.
             return "\n\n" + el.children().enumerated().map { i, li in
                 "\(i + 1). " + convertNode(li, options: options).trimmingCharacters(in: .whitespacesAndNewlines)
             }.joined(separator: "\n") + "\n\n"
@@ -135,7 +199,6 @@ public struct DefaultMarkdownConverter: MarkdownConverter {
                let href = try? el.attr("abs:href"), !href.isEmpty {
                 return "[\(inner)](\(href))"
             }
-            // No href or links disabled — emit just the visible text.
             return inner
         case "img":
             if options.preserveImages,
@@ -145,7 +208,6 @@ public struct DefaultMarkdownConverter: MarkdownConverter {
             }
             return ""
         case "table": return convertTable(el, options: options)
-        // Structural and generic containers — pass children through unchanged.
         default: return inner
         }
     }
