@@ -10,6 +10,10 @@ private let logger = Logger(label: "Hermit.MarkdownConverter")
 /// ``Hermit/init(configuration:eventLoopGroupProvider:processors:markdownConverter:)`` to
 /// replace or extend the default conversion logic.
 ///
+/// The `Document` passed to ``convert(document:baseURL:options:)`` is task-local and must
+/// not escape the call — SwiftSoup's per-element state is not safe to access from another
+/// task. Return only the resulting Markdown string.
+///
 /// ```swift
 /// struct MyConverter: MarkdownConverter {
 ///     func convert(document: Document, baseURL: URL, options: MarkdownOptions) throws -> String {
