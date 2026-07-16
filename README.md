@@ -127,9 +127,9 @@ for try await page in hermit.crawlAndScrape(
 }
 ```
 
-### Filtering
+### URL Filtering
 
-Allowlist and denylist accept regular expressions. Denylist takes priority over allowlist.
+Allowlist and denylist accept regular expressions. Denylist takes priority over allowlist. These run **before** a URL is enqueued, based on the URL string alone.
 
 ```swift
 hermit.crawl("https://example.com") {
@@ -137,6 +137,53 @@ hermit.crawl("https://example.com") {
     $0.denylist = ["/tag/", "\\?s="]
 }
 ```
+
+### Response Filters
+
+Response filters run **after** a URL has been enqueued but **before** the full crawl GET is issued. They inspect the HTTP response (status code, headers, body) and can reject non-HTML resources, error pages, or any other response characteristic.
+
+Each filter declares its data requirements via `requirements`, and the crawler makes the minimal request needed to satisfy all filters:
+
+| Requirement | Request issued | When to use |
+|---|---|---|
+| `.url` | None | Reject by URL path, extension, or scheme |
+| `.headers` | HEAD | Reject by status code or `Content-Type` |
+| `.body` | GET | Reject by response body content |
+
+Filters run in tiered phases from cheapest to most expensive. A rejection in an earlier phase skips all later phases and the crawl GET. When a `.body` filter passes, its GET response is reused for link extraction — no second request.
+
+By default, Hermit rejects non-HTML content types and error status codes:
+
+```swift
+hermit.crawl("https://example.com") {
+    // $0.filters defaults to [ContentTypeFilter(), StatusCodeFilter()]
+}
+```
+
+Custom filters implement `CrawlFilter`:
+
+```swift
+struct FileExtensionFilter: CrawlFilter {
+    let blockedExtensions: Set<String>
+
+    var requirements: FilterRequirements { .url }
+
+    func allow(_ response: HTTPClient.Response) async -> FilterDecision {
+        guard let url = response.url else { return .allow }
+        return blockedExtensions.contains(url.pathExtension) ? .reject : .allow
+    }
+}
+
+hermit.crawl("https://example.com") {
+    $0.filters = [
+        FileExtensionFilter(blockedExtensions: ["pdf", "zip", "jpg"]),
+        ContentTypeFilter(),
+        StatusCodeFilter(),
+    ]
+}
+```
+
+Rejected pages appear in `CrawlResult.failed` with a `.filtered(url, filter:)` error.
 
 ### Markdown
 

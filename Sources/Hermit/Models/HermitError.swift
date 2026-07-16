@@ -31,4 +31,11 @@ public enum HermitError: Error, Sendable {
 
     /// The operation was cancelled before it could complete.
     case cancelled
+
+    /// The page was rejected by a ``CrawlFilter`` before being crawled.
+    ///
+    /// - Parameters:
+    ///   - url: The URL that was rejected.
+    ///   - filter: The name of the filter type that rejected the page.
+    case filtered(URL, filter: String)
 }

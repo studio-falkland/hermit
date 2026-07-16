@@ -193,7 +193,8 @@ public final class Hermit: Sendable {
         let rateLimiter = config.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
         let crawler = Crawler(
             httpClient: HermitHTTPClient(client: httpClient, config: config.network),
-            rateLimiter: rateLimiter
+            rateLimiter: rateLimiter,
+            filters: config.filters
         )
         logger.debug("Starting crawl stream", metadata: ["seed": "\(url)", "maxDepth": "\(config.maxDepth)", "maxPages": "\(config.maxPages == .max ? "unlimited" : "\(config.maxPages)")", "concurrency": "\(config.concurrency)"])
         return crawler.crawlStream(seed: url, configuration: config)
@@ -300,7 +301,8 @@ public final class Hermit: Sendable {
         let crawler = Crawler(
             httpClient: HermitHTTPClient(client: httpClient, config: crawlConfig.network),
             rateLimiter: rateLimiter,
-            captureHTML: true
+            captureHTML: true,
+            filters: crawlConfig.filters
         )
         let scraper = Scraper(
             httpClient: HermitHTTPClient(client: httpClient, config: scrapeConfig.network),

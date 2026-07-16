@@ -1,4 +1,5 @@
 import AsyncHTTPClient
+import NIOCore
 import NIOHTTP1
 import Foundation
 import Logging
@@ -68,25 +69,8 @@ struct HermitHTTPClient: Sendable {
     /// - Returns: A ``FetchResult`` containing the status, body (if applicable), and links.
     /// - Throws: An error from AsyncHTTPClient if the request fails.
     func fetch(_ url: URL, mode: FetchMode) async throws -> FetchResult {
-        // Build the request, applying the user agent and any caller-supplied headers.
-        var request = HTTPClientRequest(url: url.absoluteString)
         logger.debug("Fetching URL", metadata: ["url": "\(url)", "mode": "\(mode)"])
-        request.headers.add(name: "User-Agent", value: config.userAgent)
-        
-        // Advertise only the encodings NIO can decompress (gzip, deflate).
-        // Brotli is intentionally omitted — swift-nio-extras does not support it,
-        // so advertising "br" would cause servers to send bytes we cannot decode.
-        request.headers.add(name: "Accept-Encoding", value: "gzip, deflate")
-        logger.trace("Request headers set", metadata: ["url": "\(url)", "userAgent": "\(config.userAgent)"])
-        
-        for (key, value) in config.headers {
-            request.headers.add(name: key, value: value)
-        }
-
-        let response = try await client.execute(
-            request,
-            timeout: .seconds(Int64(config.timeout))
-        )
+        let response = try await execute(url: url, method: .GET)
 
         switch mode {
         case .crawl:
@@ -95,22 +79,104 @@ struct HermitHTTPClient: Sendable {
             // without a second HTTP request.
             let buffer = try await response.body.collect(upTo: 2 * 1024 * 1024)
             let body = String(buffer: buffer)
-            
+
             logger.trace("Crawl response received", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
-            
+
             let links = HTMLParser.extractLinks(from: body, base: url)
             logger.debug("Crawl fetch complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "links": "\(links.count)"])
-            
+
             return FetchResult(url: url, statusCode: Int(response.status.code), body: body, links: links, headers: response.headers)
 
         case .scrape:
             // Collect up to the configured limit so callers get the full page content.
             let buffer = try await response.body.collect(upTo: config.maxBodySize)
             let body = String(buffer: buffer)
-            
+
             logger.debug("Scrape fetch complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
-            
+
             return FetchResult(url: url, statusCode: Int(response.status.code), body: body, links: [], headers: response.headers)
         }
+    }
+
+    /// Issues a HEAD request and returns the response with no body collected.
+    ///
+    /// Used by ``CrawlFilter`` instances that declare ``FilterRequirements/headers``
+    /// to inspect the status code and response headers without downloading the
+    /// response body.
+    ///
+    /// - Parameter url: The URL to fetch.
+    /// - Returns: The `HTTPClient.Response` with `body` left `nil`.
+    /// - Throws: An error from AsyncHTTPClient if the request fails.
+    func head(_ url: URL) async throws -> HTTPClient.Response {
+        logger.debug("Issuing HEAD", metadata: ["url": "\(url)"])
+        let response = try await execute(url: url, method: .HEAD)
+        // Drain any body bytes the server may still send despite the HEAD method.
+        // Some servers incorrectly return a body for HEAD requests; collecting and
+        // discarding it keeps the connection reusable.
+        _ = try await response.body.collect(upTo: 1)
+        logger.debug("HEAD complete", metadata: ["url": "\(url)", "status": "\(response.status.code)"])
+        return HTTPClient.Response(
+            host: url.host ?? "",
+            status: response.status,
+            version: response.version,
+            headers: response.headers,
+            body: nil
+        )
+    }
+
+    /// Issues a GET request and returns the full response with the body collected.
+    ///
+    /// Used by ``CrawlFilter`` instances that declare ``FilterRequirements/body``.
+    /// When a body filter passes, the returned response is reused for link
+    /// extraction so no second GET is issued.
+    ///
+    /// - Parameter url: The URL to fetch.
+    /// - Returns: The `HTTPClient.Response` with `body` populated.
+    /// - Throws: An error from AsyncHTTPClient if the request fails.
+    func get(_ url: URL) async throws -> HTTPClient.Response {
+        logger.debug("Issuing GET", metadata: ["url": "\(url)"])
+        let response = try await execute(url: url, method: .GET)
+        let buffer = try await response.body.collect(upTo: config.maxBodySize)
+        logger.debug("GET complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
+        return HTTPClient.Response(
+            host: url.host ?? "",
+            status: response.status,
+            version: response.version,
+            headers: response.headers,
+            body: buffer
+        )
+    }
+
+    /// Builds and executes an `HTTPClientRequest`, applying the shared headers and
+    /// timeout from ``NetworkConfiguration``.
+    ///
+    /// This is the single place where the `User-Agent`, `Accept-Encoding`, and
+    /// caller-supplied custom headers are applied, ensuring every request method
+    /// (`fetch`, `head`, `get`) advertises the same capabilities.
+    ///
+    /// - Parameters:
+    ///   - url: The URL to fetch.
+    ///   - method: The HTTP method to use.
+    /// - Returns: The raw `HTTPClientResponse` from AsyncHTTPClient.
+    /// - Throws: An error from AsyncHTTPClient if the request fails.
+    private func execute(url: URL, method: HTTPMethod) async throws -> HTTPClientResponse {
+        var request = HTTPClientRequest(url: url.absoluteString)
+        request.method = method
+        request.headers.add(name: "User-Agent", value: config.userAgent)
+
+        // Advertise only the encodings NIO can decompress (gzip, deflate).
+        // Brotli is intentionally omitted — swift-nio-extras does not support it,
+        // so advertising "br" would cause servers to send bytes we cannot decode.
+        request.headers.add(name: "Accept-Encoding", value: "gzip, deflate")
+
+        for (key, value) in config.headers {
+            request.headers.add(name: key, value: value)
+        }
+
+        logger.trace("Request headers set", metadata: ["url": "\(url)", "method": "\(method)", "userAgent": "\(config.userAgent)"])
+        return try await client.execute(
+            request,
+            timeout: .seconds(Int64(config.timeout))
+        )
     }
 }

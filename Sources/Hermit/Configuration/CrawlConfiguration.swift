@@ -67,6 +67,28 @@ public struct CrawlConfiguration: Sendable {
     /// Defaults to `true`.
     public var respectRobotsTxt: Bool = true
 
+    /// Response-level filters evaluated against each discovered page before it is crawled.
+    ///
+    /// Filters run after a URL has passed the URL-level ``allowlist``/``denylist`` and
+    /// ``stayOnDomain`` checks, but before the full crawl GET is issued. Each filter
+    /// declares its data requirements via ``CrawlFilter/requirements``; the crawler
+    /// makes the minimal request needed to satisfy all filters (none, HEAD, or GET).
+    ///
+    /// Defaults to rejecting non-HTML content types and error status codes.
+    ///
+    /// ```swift
+    /// hermit.crawl("https://example.com") {
+    ///     $0.filters = [
+    ///         ContentTypeFilter(),
+    ///         StatusCodeFilter(),
+    ///     ]
+    /// }
+    /// ```
+    public var filters: [any CrawlFilter] = [
+        ContentTypeFilter(),
+        StatusCodeFilter(),
+    ]
+
     /// HTTP-level settings such as user agent, timeout, and custom headers.
     public var network: NetworkConfiguration = .default
 
