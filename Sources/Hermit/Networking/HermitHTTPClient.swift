@@ -110,11 +110,9 @@ struct HermitHTTPClient: Sendable {
     func head(_ url: URL) async throws -> HTTPClient.Response {
         logger.debug("Issuing HEAD", metadata: ["url": "\(url)"])
         let response = try await execute(url: url, method: .HEAD)
-        // Drain any body bytes the server may still send despite the HEAD method.
-        // Some servers incorrectly return a body for HEAD requests; collecting and
-        // discarding it keeps the connection reusable.
-        _ = try await response.body.collect(upTo: 1)
+
         logger.debug("HEAD complete", metadata: ["url": "\(url)", "status": "\(response.status.code)"])
+
         return HTTPClient.Response(
             host: url.host ?? "",
             status: response.status,
