@@ -183,7 +183,7 @@ hermit.crawl("https://example.com") {
 }
 ```
 
-Rejected pages appear in `CrawlResult.failed` with a `.filtered(url, filter:)` error.
+Rejected pages appear in `CrawlResult.failed` with a `.filtered(url, filter:, context:)` error. The `FilterContext` carries the response `statusCode` and `contentType` when the rejection happened after an HTTP request (i.e. for `.headers` and `.body` filters); URL-only filters produce an empty context.
 
 ### Markdown
 

@@ -34,8 +34,43 @@ public enum HermitError: Error, Sendable {
 
     /// The page was rejected by a ``CrawlFilter`` before being crawled.
     ///
+    /// ``FilterContext`` carries the response data that was available at the time
+    /// of rejection. Fields are populated only when the corresponding filter
+    /// requirements triggered an HTTP request; URL-only filters produce an empty
+    /// context.
+    ///
     /// - Parameters:
     ///   - url: The URL that was rejected.
     ///   - filter: The name of the filter type that rejected the page.
-    case filtered(URL, filter: String)
+    ///   - context: The response data available when the filter rejected the page.
+    case filtered(URL, filter: String, context: FilterContext = .empty)
+}
+
+/// Response data captured at the moment a ``CrawlFilter`` rejected a page.
+///
+/// New fields can be added over time without changing the signature of
+/// ``HermitError/filtered(_:filter:context:)``. Fields are populated only when
+/// the rejecting filter had the corresponding ``FilterRequirements``; for
+/// example, a URL-only filter produces an empty context.
+public struct FilterContext: Sendable, Equatable {
+    /// The HTTP status code of the response that was rejected, if one was fetched.
+    public let statusCode: Int?
+
+    /// The bare MIME type from the `Content-Type` response header, with any
+    /// `;charset=…` or other parameters stripped.
+    public let contentType: String?
+
+    /// Creates a filter context.
+    ///
+    /// - Parameters:
+    ///   - statusCode: The HTTP status code of the response, if any.
+    ///   - contentType: The bare MIME type from the `Content-Type` header, if any.
+    public init(statusCode: Int? = nil, contentType: String? = nil) {
+        self.statusCode = statusCode
+        self.contentType = contentType
+    }
+
+    /// A context with no information — used when a filter rejected a page before
+    /// any HTTP request was issued.
+    public static let empty = FilterContext()
 }

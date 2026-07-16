@@ -166,7 +166,7 @@ struct Crawler: Sendable {
                 statusCode: nil as Int?,
                 outboundLinks: [],
                 html: nil as String?,
-                error: HermitError.filtered(url, filter: error.filterName),
+                error: HermitError.filtered(url, filter: error.filterName, context: error.context),
                 responseHeaders: HTTPHeaders()
             )
         } catch {
@@ -207,7 +207,11 @@ struct Crawler: Sendable {
             let response = Self.makeURLOnlyResponse(url: url)
             for filter in urlFilters {
                 if case .reject = await filter.allow(response) {
-                    throw FilterRejection(filterName: String(describing: type(of: filter)))
+                    // No HTTP request was made, so no status/content-type to report.
+                    throw FilterRejection(
+                        filterName: String(describing: type(of: filter)),
+                        context: .empty
+                    )
                 }
             }
         }
@@ -222,17 +226,24 @@ struct Crawler: Sendable {
         if maxRequirement == .body {
             // Phase 3: GET (also satisfies Phase 2).
             let response = try await httpClient.get(url)
+            let context = Self.context(from: response)
 
             // Run header filters against the GET response (which has headers).
             for filter in headerFilters {
                 if case .reject = await filter.allow(response) {
-                    throw FilterRejection(filterName: String(describing: type(of: filter)))
+                    throw FilterRejection(
+                        filterName: String(describing: type(of: filter)),
+                        context: context
+                    )
                 }
             }
             // Run body filters.
             for filter in bodyFilters {
                 if case .reject = await filter.allow(response) {
-                    throw FilterRejection(filterName: String(describing: type(of: filter)))
+                    throw FilterRejection(
+                        filterName: String(describing: type(of: filter)),
+                        context: context
+                    )
                 }
             }
             // Reuse this GET response for the crawl — no second request.
@@ -240,9 +251,13 @@ struct Crawler: Sendable {
         } else if maxRequirement == .headers {
             // Phase 2: HEAD only.
             let response = try await httpClient.head(url)
+            let context = Self.context(from: response)
             for filter in headerFilters {
                 if case .reject = await filter.allow(response) {
-                    throw FilterRejection(filterName: String(describing: type(of: filter)))
+                    throw FilterRejection(
+                        filterName: String(describing: type(of: filter)),
+                        context: context
+                    )
                 }
             }
             // No body filters; issue the normal crawl GET.
@@ -251,6 +266,29 @@ struct Crawler: Sendable {
             // Only URL filters (or no filters at all). Issue the crawl GET directly.
             return try await httpClient.get(url)
         }
+    }
+
+    /// Builds a ``FilterContext`` from a response that was just fetched.
+    private static func context(from response: HTTPClient.Response) -> FilterContext {
+        FilterContext(
+            statusCode: Int(response.status.code),
+            contentType: mimeType(from: response.headers)
+        )
+    }
+
+    /// Extracts the bare MIME type from a `Content-Type` header, stripping any
+    /// `;charset=…` or other parameters.
+    ///
+    /// Returns `nil` if the header is missing or empty.
+    private static func mimeType(from headers: HTTPHeaders) -> String? {
+        guard let raw = headers.first(name: "content-type") else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(separator: ";")
+            .first
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Constructs a minimal `HTTPClient.Response` carrying only the URL.
@@ -298,8 +336,10 @@ struct Crawler: Sendable {
 
 /// An internal error used to short-circuit filter evaluation when a filter rejects a page.
 ///
-/// Carries the name of the rejecting filter type so it can be surfaced via
-/// ``HermitError/filtered(_:filter:)``.
+/// Carries the rejecting filter's name plus a ``FilterContext`` with the
+/// response data that was available, so it can be surfaced via
+/// ``HermitError/filtered(_:filter:context:)``.
 private struct FilterRejection: Error {
     let filterName: String
+    let context: FilterContext
 }

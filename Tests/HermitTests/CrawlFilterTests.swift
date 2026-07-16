@@ -220,9 +220,24 @@ struct HermitErrorFilteredTests {
         let url = URL(string: "https://example.com/blocked")!
         let error = HermitError.filtered(url, filter: "ContentTypeFilter")
         switch error {
-        case .filtered(let errorURL, let filterName):
+        case .filtered(let errorURL, let filterName, let context):
             #expect(errorURL == url)
             #expect(filterName == "ContentTypeFilter")
+            #expect(context == .empty)
+        default:
+            Issue.record("Expected .filtered case")
+        }
+    }
+
+    @Test func carriesContext() {
+        let url = URL(string: "https://example.com/blocked")!
+        let context = FilterContext(statusCode: 404, contentType: "text/html")
+        let error = HermitError.filtered(url, filter: "StatusCodeFilter", context: context)
+        switch error {
+        case .filtered(let errorURL, let filterName, let errorContext):
+            #expect(errorURL == url)
+            #expect(filterName == "StatusCodeFilter")
+            #expect(errorContext == context)
         default:
             Issue.record("Expected .filtered case")
         }
