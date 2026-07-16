@@ -27,13 +27,18 @@ public struct HermitConfiguration: Sendable {
     public static let `default` = HermitConfiguration()
 
     /// Builds the `HTTPClient.Configuration` value passed to AsyncHTTPClient.
-    var httpClientConfiguration: HTTPClient.Configuration {
-        HTTPClient.Configuration(
-            connectionPool: .init(
-                idleTimeout: .seconds(Int64(connectionPoolIdleTimeout)),
-                concurrentHTTP1ConnectionsPerHostSoftLimit: connectionsPerHostSoftLimit
-            ),
-            decompression: .enabled(limit: .size(10 * 1024 * 1024))
-        )
-    }
+        ///
+        /// Redirect responses (3xx) are followed by default, up to a maximum of 5 hops and 5
+        /// redirect cycles. Callers that need different behaviour should construct their own
+        /// ``Hermit`` with a custom `HTTPClient`.
+        var httpClientConfiguration: HTTPClient.Configuration {
+                HTTPClient.Configuration(
+                    redirectConfiguration: .follow(max: 5, allowCycles: true),
+                    connectionPool: .init(
+                        idleTimeout: .seconds(Int64(connectionPoolIdleTimeout)),
+                        concurrentHTTP1ConnectionsPerHostSoftLimit: connectionsPerHostSoftLimit
+                    ),
+                    decompression: .enabled(limit: .size(10 * 1024 * 1024))
+                )
+            }
 }
