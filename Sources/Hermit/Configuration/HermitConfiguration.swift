@@ -33,11 +33,7 @@ public struct HermitConfiguration: Sendable {
                 idleTimeout: .seconds(Int64(connectionPoolIdleTimeout)),
                 concurrentHTTP1ConnectionsPerHostSoftLimit: connectionsPerHostSoftLimit
             ),
-            // Decompress gzip and deflate responses transparently.
-            // Ratio 25 guards against decompression bombs while allowing for the high
-            // compression ratios that well-structured HTML regularly achieves (15-25x).
-            // The real memory bound is enforced downstream by collect(upTo:).
-            decompression: .enabled(limit: .ratio(25))
+            decompression: .enabled(limit: .size(10 * 1024 * 1024))
         )
     }
 }
