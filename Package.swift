@@ -9,7 +9,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
-        .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.7.0"),
+        .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.13.6"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
