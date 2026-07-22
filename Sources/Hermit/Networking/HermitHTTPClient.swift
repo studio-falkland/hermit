@@ -89,7 +89,7 @@ struct HermitHTTPClient: Sendable {
 
         case .scrape:
             // Collect up to the configured limit so callers get the full page content.
-            let buffer = try await response.body.collect(upTo: config.maxBodySize)
+            let buffer = try await response.body.collect(upTo: Int(config.maxBodySize))
             let body = String(buffer: buffer)
 
             logger.debug("Scrape fetch complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
@@ -134,7 +134,7 @@ struct HermitHTTPClient: Sendable {
     func get(_ url: URL) async throws -> HTTPClient.Response {
         logger.debug("Issuing GET", metadata: ["url": "\(url)"])
         let response = try await execute(url: url, method: .GET)
-        let buffer = try await response.body.collect(upTo: config.maxBodySize)
+        let buffer = try await response.body.collect(upTo: Int(config.maxBodySize))
         logger.debug("GET complete", metadata: ["url": "\(url)", "status": "\(response.status.code)", "bytes": "\(buffer.readableBytes)"])
         return HTTPClient.Response(
             host: url.host ?? "",

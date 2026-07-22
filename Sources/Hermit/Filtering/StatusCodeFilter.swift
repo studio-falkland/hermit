@@ -24,7 +24,7 @@ public struct StatusCodeFilter: CrawlFilter {
         self.allowedCodes = allowedCodes
     }
 
-    public func allow(_ response: HTTPClient.Response) async -> FilterDecision {
+    public func allow(_ response: HTTPClient.Response) async throws -> FilterDecision {
         allowedCodes.contains(Int(response.status.code)) ? .allow : .reject
     }
 }

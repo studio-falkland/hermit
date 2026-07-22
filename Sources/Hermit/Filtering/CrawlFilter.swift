@@ -77,5 +77,7 @@ public protocol CrawlFilter: Sendable {
     /// - Parameter response: The response for the discovered URL. The amount of
     ///   data populated depends on this filter's ``requirements``.
     /// - Returns: `.allow` to proceed with the crawl, or `.reject` to skip the page.
-    func allow(_ response: HTTPClient.Response) async -> FilterDecision
+    /// - Throws: Any error that prevented the filter from making a decision.
+    ///   The crawler records this as ``CrawledPage/error`` and continues.
+    func allow(_ response: HTTPClient.Response) async throws -> FilterDecision
 }

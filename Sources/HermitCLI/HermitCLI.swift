@@ -62,21 +62,24 @@ struct HermitCLI: AsyncParsableCommand {
         let start = Date()
         var count = 0
 
+        let crawlConfig = try CrawlConfiguration(
+            maxDepth: UInt(maxDepth),
+            maxPages: maxPages.map(UInt.init) ?? .max,
+            includeSubdomains: includeSubdomains,
+            concurrency: UInt(concurrency),
+            requestsPerSecond: rateLimit,
+            respectRobotsTxt: !ignoreRobotsTxt
+        )
+        let scrapeConfig = ScrapeConfiguration(
+            outputMarkdown: true,
+            markdown: MarkdownOptions(denyTags: denyTag)
+        )
+
         try await Hermit.withHermit { hermit in
             let stream = hermit.crawlAndScrape(
                 seedURL,
-                crawl: { config in
-                    config.maxDepth = maxDepth
-                    if let maxPages { config.maxPages = maxPages }
-                    config.concurrency = concurrency
-                    config.requestsPerSecond = rateLimit
-                    config.includeSubdomains = includeSubdomains
-                    config.respectRobotsTxt = !ignoreRobotsTxt
-                },
-                scrape: { config in
-                    config.outputMarkdown = true
-                    config.markdown.denyTags = denyTag
-                }
+                configuration: crawlConfig,
+                scrapeConfiguration: scrapeConfig
             )
 
             for try await page in stream {

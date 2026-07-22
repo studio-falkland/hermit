@@ -24,7 +24,7 @@ public struct ContentTypeFilter: CrawlFilter {
         self.allowedTypes = allowedTypes
     }
 
-    public func allow(_ response: HTTPClient.Response) async -> FilterDecision {
+    public func allow(_ response: HTTPClient.Response) async throws -> FilterDecision {
         guard let contentType = response.headers.first(name: "content-type") else {
             return .reject
         }

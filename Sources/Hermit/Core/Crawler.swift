@@ -83,7 +83,7 @@ struct Crawler: Sendable {
 
         try await withThrowingTaskGroup(of: CrawledPage.self) { group in
             // Initial burst: fill the group up to the configured concurrency limit.
-            for _ in 0..<configuration.concurrency {
+            for _ in 0..<Int(configuration.concurrency) {
                 guard case .fetch(let url, let depth) = await frontier.next() else { break }
                 addTask(to: &group, url: url, depth: depth)
             }
@@ -206,7 +206,7 @@ struct Crawler: Sendable {
         if !urlFilters.isEmpty {
             let response = Self.makeURLOnlyResponse(url: url)
             for filter in urlFilters {
-                if case .reject = await filter.allow(response) {
+                if case .reject = try await filter.allow(response) {
                     // No HTTP request was made, so no status/content-type to report.
                     throw FilterRejection(
                         filterName: String(describing: type(of: filter)),
@@ -264,7 +264,7 @@ struct Crawler: Sendable {
     ) async throws {
         let context = Self.context(from: response)
         for filter in filters {
-            if case .reject = await filter.allow(response) {
+            if case .reject = try await filter.allow(response) {
                 throw FilterRejection(
                     filterName: String(describing: type(of: filter)),
                     context: context

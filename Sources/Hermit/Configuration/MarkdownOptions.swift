@@ -4,10 +4,9 @@
 /// ``DefaultMarkdownConverter``.
 ///
 /// ```swift
-/// hermit.scrape("https://example.com/article") {
-///     $0.outputMarkdown = true
-///     $0.markdown.denyTags = ["nav", "footer", "aside", "header"]
-/// }
+/// var opts = MarkdownOptions()
+/// opts.denyTags = ["nav", "footer", "aside", "header"]
+/// let config = ScrapeConfiguration(outputMarkdown: true, markdown: opts)
 /// ```
 public struct MarkdownOptions: Sendable {
     /// CSS selectors for elements to remove from the document before Markdown conversion.
@@ -17,17 +16,33 @@ public struct MarkdownOptions: Sendable {
     /// (`"[role=navigation]"`), or compound selectors (`"nav, header"`).
     ///
     /// Defaults to `[]` (nothing removed).
-    public var denyTags: [String] = []
+    public let denyTags: [String]
 
     /// When `true`, converts `<a href>` elements to Markdown link syntax `[text](url)`.
     ///
     /// Defaults to `true`. Set to `false` to emit only the anchor's text content.
-    public var preserveLinks: Bool = true
+    public let preserveLinks: Bool
 
     /// When `true`, converts `<img>` elements to Markdown image syntax `![alt](src)`.
     ///
     /// Defaults to `true`. Set to `false` to drop images entirely.
-    public var preserveImages: Bool = true
+    public let preserveImages: Bool
+
+    /// Creates Markdown options.
+    ///
+    /// - Parameters:
+    ///   - denyTags: Elements to remove before conversion (default: `[]`).
+    ///   - preserveLinks: Convert `<a>` to Markdown links (default: `true`).
+    ///   - preserveImages: Convert `<img>` to Markdown images (default: `true`).
+    public init(
+        denyTags: [String] = [],
+        preserveLinks: Bool = true,
+        preserveImages: Bool = true
+    ) {
+        self.denyTags = denyTags
+        self.preserveLinks = preserveLinks
+        self.preserveImages = preserveImages
+    }
 
     /// The default Markdown options.
     public static let `default` = MarkdownOptions()

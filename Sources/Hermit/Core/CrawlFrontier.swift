@@ -29,7 +29,8 @@ actor CrawlFrontier {
     /// The count of tasks that have dequeued a URL but have not yet called ``complete(_:)``.
     private var inFlight: Int = 0
 
-    private let config: CrawlConfiguration
+    private let maxDepth: Int
+    private let maxPages: Int
     private let urlFilter: URLFilter
     private let domainPolicy: DomainPolicy
 
@@ -54,7 +55,8 @@ actor CrawlFrontier {
     ///   - seed: The URL from which the crawl begins.
     ///   - config: The crawl configuration that governs depth, page limits, and filtering.
     init(seed: URL, config: CrawlConfiguration) {
-        self.config = config
+        self.maxDepth = Int(config.maxDepth)
+        self.maxPages = Int(config.maxPages)
         self.urlFilter = URLFilter(allowlist: config.allowlist, denylist: config.denylist)
         self.domainPolicy = DomainPolicy(
             seedHost: seed.host?.lowercased() ?? "",
@@ -80,14 +82,14 @@ actor CrawlFrontier {
         inFlight -= 1
 
         // Only enqueue child links if we haven't already exceeded the max depth for this branch.
-        if page.depth < config.maxDepth {
+        if page.depth < maxDepth {
             for link in page.outboundLinks {
                 if visited.contains(link) {
                     logger.trace("Skipping link: already visited", metadata: ["url": "\(link)"])
                     continue
                 }
-                if visited.count >= config.maxPages {
-                    logger.trace("Skipping link: page limit reached", metadata: ["url": "\(link)", "limit": "\(config.maxPages)"])
+                if visited.count >= maxPages {
+                    logger.trace("Skipping link: page limit reached", metadata: ["url": "\(link)", "limit": "\(maxPages)"])
                     continue
                 }
                 if !urlFilter.allows(link) {
@@ -114,7 +116,7 @@ actor CrawlFrontier {
     /// Called during the initial seeding burst and also at the end of ``complete(_:)``
     /// to atomically hand the caller a new unit of work.
     func next() -> Advance {
-        guard !queue.isEmpty, visited.count < config.maxPages else {
+        guard !queue.isEmpty, visited.count < maxPages else {
             if inFlight == 0 {
                 logger.debug("Frontier done", metadata: ["visited": "\(visited.count)"])
                 return .done

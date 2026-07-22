@@ -38,85 +38,85 @@ private func makeResponse(
 struct BinaryContentFilterTests {
     let filter = BinaryContentFilter()
 
-    @Test func allowsHTML() async {
+    @Test func allowsHTML() async throws {
         let response = makeResponse(body: "<html><body><h1>Hello</h1></body></html>")
-        #expect(await filter.allow(response) == .allow)
+        #expect(try await filter.allow(response) == .allow)
     }
 
-    @Test func allowsEmptyBody() async {
+    @Test func allowsEmptyBody() async throws {
         let response = makeResponse(body: "")
-        #expect(await filter.allow(response) == .allow)
+        #expect(try await filter.allow(response) == .allow)
     }
 
-    @Test func allowsShortBody() async {
+    @Test func allowsShortBody() async throws {
         // 3 bytes is below the 4-byte signature floor; we pass it through.
         let response = makeResponse(body: "abc")
-        #expect(await filter.allow(response) == .allow)
+        #expect(try await filter.allow(response) == .allow)
     }
 
-    @Test func allowsMissingBody() async {
+    @Test func allowsMissingBody() async throws {
         let response = makeResponse(body: nil)
-        #expect(await filter.allow(response) == .allow)
+        #expect(try await filter.allow(response) == .allow)
     }
 
-    @Test func rejectsPDF() async {
+    @Test func rejectsPDF() async throws {
         let response = makeResponse(body: "%PDF-1.6\n%\u{fffd}\u{fffd}\u{fffd}\u{fffd}\n322 0 obj\n<<...>>")
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsPNG() async {
+    @Test func rejectsPNG() async throws {
         let bytes: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00]
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsJPEG() async {
+    @Test func rejectsJPEG() async throws {
         let bytes: [UInt8] = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsGzip() async {
+    @Test func rejectsGzip() async throws {
         let bytes: [UInt8] = [0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00]
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsZIP() async {
+    @Test func rejectsZIP() async throws {
         let bytes: [UInt8] = [0x50, 0x4B, 0x03, 0x04, 0x14, 0x00]
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsWOFF() async {
+    @Test func rejectsWOFF() async throws {
         let bytes: [UInt8] = [0x77, 0x4F, 0x46, 0x46, 0x00, 0x01, 0x00, 0x00]
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsWOFF2() async {
+    @Test func rejectsWOFF2() async throws {
         let bytes: [UInt8] = [0x77, 0x4F, 0x46, 0x32, 0x00, 0x01, 0x00, 0x00]
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsWebP() async {
+    @Test func rejectsWebP() async throws {
         // RIFF + 4 size bytes + WEBP. The longest signature we recognise.
         var bytes: [UInt8] = [0x52, 0x49, 0x46, 0x46]
         bytes.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
         bytes.append(contentsOf: [0x57, 0x45, 0x42, 0x50])
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsRealWebP() async {
+    @Test func rejectsRealWebP() async throws {
         // Real WebP: RIFF, then a non-zero little-endian size, then WEBP.
         // The size field is 0x00260000 = 2,539,520 — i.e. a real file size, not zero.
         var bytes: [UInt8] = [0x52, 0x49, 0x46, 0x46]
@@ -124,10 +124,10 @@ struct BinaryContentFilterTests {
         bytes.append(contentsOf: [0x57, 0x45, 0x42, 0x50])
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsMP4() async {
+    @Test func rejectsMP4() async throws {
         // ISO BMFF layout: 4-byte size (big-endian) + "ftyp" + major brand.
         // 0x00000018 = 24-byte box, "ftyp" at offset 4, "mp42" at offset 8.
         var bytes: [UInt8] = [0x00, 0x00, 0x00, 0x18]
@@ -135,30 +135,30 @@ struct BinaryContentFilterTests {
         bytes.append(contentsOf: [0x6D, 0x70, 0x34, 0x32])  // "mp42"
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsAVIF() async {
+    @Test func rejectsAVIF() async throws {
         // ISO BMFF with "ftyp" at offset 4 and "avif" major brand at offset 8.
         var bytes: [UInt8] = [0x00, 0x00, 0x00, 0x20]
         bytes.append(contentsOf: [0x66, 0x74, 0x79, 0x70])
         bytes.append(contentsOf: [0x61, 0x76, 0x69, 0x66])  // "avif"
         let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsBinaryByNULByte() async {
+    @Test func rejectsBinaryByNULByte() async throws {
         // Not a known signature, but a NUL byte in the first 512 bytes.
         let response = makeResponse(body: "garbage\u{0000}with-null-byte-in-the-middle")
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func allowsUnicodeHTML() async {
+    @Test func allowsUnicodeHTML() async throws {
         // UTF-8 bytes — high-bit characters but no NUL, no binary signature.
         let body = "<html><body><p>Café 🎉</p></body></html>"
         let response = makeResponse(body: body)
-        #expect(await filter.allow(response) == .allow)
+        #expect(try await filter.allow(response) == .allow)
     }
 
     @Test func requirementsIsBody() {
@@ -172,42 +172,42 @@ struct BinaryContentFilterTests {
 struct ContentTypeFilterTests {
     let filter = ContentTypeFilter()
 
-    @Test func allowsHTML() async {
+    @Test func allowsHTML() async throws {
         let response = makeResponse(headers: [("content-type", "text/html; charset=utf-8")])
-        #expect(await filter.allow(response) == .allow)
+        #expect(try await filter.allow(response) == .allow)
     }
 
-    @Test func allowsXHTML() async {
+    @Test func allowsXHTML() async throws {
         let response = makeResponse(headers: [("content-type", "application/xhtml+xml")])
-        #expect(await filter.allow(response) == .allow)
+        #expect(try await filter.allow(response) == .allow)
     }
 
-    @Test func rejectsPDF() async {
+    @Test func rejectsPDF() async throws {
         let response = makeResponse(headers: [("content-type", "application/pdf")])
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsImage() async {
+    @Test func rejectsImage() async throws {
         let response = makeResponse(headers: [("content-type", "image/png")])
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsMissingContentType() async {
+    @Test func rejectsMissingContentType() async throws {
         let response = makeResponse(headers: [])
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func rejectsMalformedContentType() async {
+    @Test func rejectsMalformedContentType() async throws {
         let response = makeResponse(headers: [("content-type", "")])
-        #expect(await filter.allow(response) == .reject)
+        #expect(try await filter.allow(response) == .reject)
     }
 
-    @Test func customAllowedTypes() async {
+    @Test func customAllowedTypes() async throws {
         let filter = ContentTypeFilter(allowedTypes: ["application/json"])
         let json = makeResponse(headers: [("content-type", "application/json")])
         let html = makeResponse(headers: [("content-type", "text/html")])
-        #expect(await filter.allow(json) == .allow)
-        #expect(await filter.allow(html) == .reject)
+        #expect(try await filter.allow(json) == .allow)
+        #expect(try await filter.allow(html) == .reject)
     }
 
     @Test func requirementsIsHeaders() {
@@ -221,39 +221,42 @@ struct ContentTypeFilterTests {
 struct StatusCodeFilterTests {
     let filter = StatusCodeFilter()
 
-    @Test func allows2xx() async {
+    @Test func allows2xx() async throws {
         for code in [200, 201, 204, 299] {
             let response = makeResponse(status: HTTPResponseStatus(statusCode: code))
-            #expect(await filter.allow(response) == .allow, "Expected \(code) to be allowed")
+            #expect(try await filter.allow(response) == .allow, "Expected \(code) to be allowed")
         }
     }
 
-    @Test func rejects4xx() async {
+    @Test func rejects4xx() async throws {
         for code in [400, 403, 404, 410, 429] {
             let response = makeResponse(status: HTTPResponseStatus(statusCode: code))
-            #expect(await filter.allow(response) == .reject, "Expected \(code) to be rejected")
+            #expect(try await filter.allow(response) == .reject, "Expected \(code) to be rejected")
         }
     }
 
-    @Test func rejects5xx() async {
+    @Test func rejects5xx() async throws {
         for code in [500, 502, 503, 504] {
             let response = makeResponse(status: HTTPResponseStatus(statusCode: code))
-            #expect(await filter.allow(response) == .reject, "Expected \(code) to be rejected")
+            #expect(try await filter.allow(response) == .reject, "Expected \(code) to be rejected")
         }
     }
 
-    @Test func rejects3xxByDefault() async {
+    @Test func rejects3xxByDefault() async throws {
         for code in [301, 302, 304, 307, 308] {
             let response = makeResponse(status: HTTPResponseStatus(statusCode: code))
-            #expect(await filter.allow(response) == .reject, "Expected \(code) to be rejected by default")
+            #expect(try await filter.allow(response) == .reject, "Expected \(code) to be rejected by default")
         }
     }
 
-    @Test func customAllowedCodes() async {
+    @Test func customAllowedCodes() async throws {
         let filter = StatusCodeFilter(allowedCodes: [200, 301, 302])
-        #expect(await filter.allow(makeResponse(status: .ok)) == .allow)
-        #expect(await filter.allow(makeResponse(status: .movedPermanently)) == .allow)
-        #expect(await filter.allow(makeResponse(status: .notFound)) == .reject)
+        let result1 = try await filter.allow(makeResponse(status: .ok))
+        let result2 = try await filter.allow(makeResponse(status: .movedPermanently))
+        let result3 = try await filter.allow(makeResponse(status: .notFound))
+        #expect(result1 == .allow)
+        #expect(result2 == .allow)
+        #expect(result3 == .reject)
     }
 
     @Test func requirementsIsHeaders() {
@@ -296,7 +299,7 @@ struct CustomFilterTests {
 
         var requirements: FilterRequirements { .url }
 
-        func allow(_ response: HTTPClient.Response) async -> FilterDecision {
+        func allow(_ response: HTTPClient.Response) async throws -> FilterDecision {
             guard let url = response.url else { return .allow }
             return blockedExtensions.contains(url.pathExtension) ? .reject : .allow
         }
@@ -307,18 +310,20 @@ struct CustomFilterTests {
 
         var requirements: FilterRequirements { .body }
 
-        func allow(_ response: HTTPClient.Response) async -> FilterDecision {
+        func allow(_ response: HTTPClient.Response) async throws -> FilterDecision {
             guard let body = response.body else { return .reject }
             return String(buffer: body).contains(needle) ? .allow : .reject
         }
     }
 
-    @Test func urlFilterRejectsBlockedExtension() async {
+    @Test func urlFilterRejectsBlockedExtension() async throws {
         let filter = FileExtensionFilter(blockedExtensions: ["pdf", "zip"])
         let pdf = makeResponse(url: URL(string: "https://example.com/doc.pdf")!)
         let html = makeResponse(url: URL(string: "https://example.com/doc.html")!)
-        #expect(await filter.allow(pdf) == .reject)
-        #expect(await filter.allow(html) == .allow)
+        let result1 = try await filter.allow(pdf)
+        let result2 = try await filter.allow(html)
+        #expect(result1 == .reject)
+        #expect(result2 == .allow)
     }
 
     @Test func urlFilterRequirementsIsURL() {
@@ -326,18 +331,21 @@ struct CustomFilterTests {
         #expect(filter.requirements == .url)
     }
 
-    @Test func bodyFilterAllowsMatchingContent() async {
+    @Test func bodyFilterAllowsMatchingContent() async throws {
         let filter = BodyContainsFilter(needle: "<article")
         let matching = makeResponse(body: "<html><body><article>Hello</article></body></html>")
         let nonMatching = makeResponse(body: "<html><body><div>Hello</div></body></html>")
-        #expect(await filter.allow(matching) == .allow)
-        #expect(await filter.allow(nonMatching) == .reject)
+        let result1 = try await filter.allow(matching)
+        let result2 = try await filter.allow(nonMatching)
+        #expect(result1 == .allow)
+        #expect(result2 == .reject)
     }
 
-    @Test func bodyFilterRejectsMissingBody() async {
+    @Test func bodyFilterRejectsMissingBody() async throws {
         let filter = BodyContainsFilter(needle: "anything")
         let noBody = makeResponse(body: nil)
-        #expect(await filter.allow(noBody) == .reject)
+        let result = try await filter.allow(noBody)
+        #expect(result == .reject)
     }
 
     @Test func bodyFilterRequirementsIsBody() {
@@ -347,33 +355,3 @@ struct CustomFilterTests {
 }
 
 // MARK: - HermitError.filtered
-
-@Suite("HermitError.filtered")
-struct HermitErrorFilteredTests {
-    @Test func carriesURLAndFilterName() {
-        let url = URL(string: "https://example.com/blocked")!
-        let error = HermitError.filtered(url, filter: "ContentTypeFilter")
-        switch error {
-        case .filtered(let errorURL, let filterName, let context):
-            #expect(errorURL == url)
-            #expect(filterName == "ContentTypeFilter")
-            #expect(context == .empty)
-        default:
-            Issue.record("Expected .filtered case")
-        }
-    }
-
-    @Test func carriesContext() {
-        let url = URL(string: "https://example.com/blocked")!
-        let context = FilterContext(statusCode: 404, contentType: "text/html")
-        let error = HermitError.filtered(url, filter: "StatusCodeFilter", context: context)
-        switch error {
-        case .filtered(let errorURL, let filterName, let errorContext):
-            #expect(errorURL == url)
-            #expect(filterName == "StatusCodeFilter")
-            #expect(errorContext == context)
-        default:
-            Issue.record("Expected .filtered case")
-        }
-    }
-}

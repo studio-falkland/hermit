@@ -32,6 +32,11 @@ public enum HermitError: Error, Sendable {
     /// The operation was cancelled before it could complete.
     case cancelled
 
+    /// The configuration contained invalid values.
+    ///
+    /// - Parameter detail: A description of what was invalid.
+    case invalidConfiguration(String)
+
     /// The page was rejected by a ``CrawlFilter`` before being crawled.
     ///
     /// ``FilterContext`` carries the response data that was available at the time

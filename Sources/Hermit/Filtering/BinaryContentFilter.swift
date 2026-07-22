@@ -40,7 +40,7 @@ public struct BinaryContentFilter: CrawlFilter {
     /// Creates a binary-content filter.
     public init() {}
 
-    public func allow(_ response: HTTPClient.Response) async -> FilterDecision {
+    public func allow(_ response: HTTPClient.Response) async throws -> FilterDecision {
         // No body or a trivially short body is not something we can classify;
         // pass it through and let other filters (or the parser) decide.
         guard let body = response.body, body.readableBytes >= 4 else { return .allow }

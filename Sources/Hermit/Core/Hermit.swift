@@ -33,12 +33,8 @@ private let logger = Logger(label: "Hermit")
 ///
 /// ```swift
 /// // Collect a full URL index
-/// let result = try await hermit.crawl("https://docs.example.com") {
-///     $0.maxDepth = 3
-///     $0.maxPages = 500
-///     $0.stayOnDomain = true
-///     $0.denylist = ["/tag/"]
-/// }
+/// let config = try CrawlConfiguration(maxDepth: 3, maxPages: 500, stayOnDomain: true)
+/// let result = try await hermit.crawl("https://docs.example.com", configuration: config)
 ///
 /// // Stream pages as they are discovered
 /// for try await page in hermit.crawlStream("https://example.com") {
@@ -50,10 +46,8 @@ private let logger = Logger(label: "Hermit")
 ///
 /// ```swift
 /// // Single page
-/// let page = try await hermit.scrape("https://example.com/article") {
-///     $0.outputMarkdown = true
-///     $0.markdown.ignoreNav = true
-/// }
+/// let config = ScrapeConfiguration(outputMarkdown: true)
+/// let page = try await hermit.scrape("https://example.com/article", configuration: config)
 ///
 /// // Batch — results arrive as each finishes
 /// for try await page in hermit.scrapeStream(urls) {
@@ -137,26 +131,24 @@ public final class Hermit: Sendable {
 
     /// Crawls a website and returns a complete ``CrawlResult`` when finished.
     ///
-    /// This is a convenience wrapper around ``crawlStream(_:configure:)`` that collects all
+    /// This is a convenience wrapper around ``crawlStream(_:configuration:)`` that collects all
     /// pages into a single result value. For large sites, prefer the stream variant to avoid
     /// accumulating all results in memory at once.
     ///
     /// - Parameters:
     ///   - url: The seed URL from which the crawl begins.
-    ///   - configure: A closure to customise ``CrawlConfiguration`` before the crawl starts.
+    ///   - configuration: The crawl configuration. Defaults to ``CrawlConfiguration/default``.
     /// - Returns: A ``CrawlResult`` containing all discovered pages and timing information.
     /// - Throws: ``HermitError`` if the crawl cannot be started.
     public func crawl(
         _ url: URL,
-        configure: (inout CrawlConfiguration) -> Void = { _ in }
+        configuration: CrawlConfiguration = .default
     ) async throws -> CrawlResult {
-        var config = CrawlConfiguration.default
-        configure(&config)
         let start = Date()
         var pages: [CrawledPage] = []
         var failed: [URL: any Error] = [:]
         // Drain the stream, separating successful fetches from failures.
-        for try await page in crawlStream(url, configure: { $0 = config }) {
+        for try await page in crawlStream(url, configuration: configuration) {
             if let error = page.error { failed[page.url] = error }
             else { pages.append(page) }
         }
@@ -181,23 +173,21 @@ public final class Hermit: Sendable {
     ///
     /// - Parameters:
     ///   - url: The seed URL.
-    ///   - configure: A closure to customise ``CrawlConfiguration``.
+    ///   - configuration: The crawl configuration. Defaults to ``CrawlConfiguration/default``.
     /// - Returns: An `AsyncThrowingStream` of ``CrawledPage`` values.
     public func crawlStream(
         _ url: URL,
-        configure: (inout CrawlConfiguration) -> Void = { _ in }
+        configuration: CrawlConfiguration = .default
     ) -> AsyncThrowingStream<CrawledPage, Error> {
-        var config = CrawlConfiguration.default
-        configure(&config)
         // Build the rate limiter only if a limit was set; nil means no throttling.
-        let rateLimiter = config.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
+        let rateLimiter = configuration.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
         let crawler = Crawler(
-            httpClient: HermitHTTPClient(client: httpClient, config: config.network),
+            httpClient: HermitHTTPClient(client: httpClient, config: configuration.network),
             rateLimiter: rateLimiter,
-            filters: config.filters
+            filters: configuration.filters
         )
-        logger.debug("Starting crawl stream", metadata: ["seed": "\(url)", "maxDepth": "\(config.maxDepth)", "maxPages": "\(config.maxPages == .max ? "unlimited" : "\(config.maxPages)")", "concurrency": "\(config.concurrency)"])
-        return crawler.crawlStream(seed: url, configuration: config)
+        logger.debug("Starting crawl stream", metadata: ["seed": "\(url)", "maxDepth": "\(configuration.maxDepth)", "maxPages": "\(configuration.maxPages == .max ? "unlimited" : "\(configuration.maxPages)")", "concurrency": "\(configuration.concurrency)"])
+        return crawler.crawlStream(seed: url, configuration: configuration)
     }
 
     // MARK: Scrape
@@ -205,34 +195,32 @@ public final class Hermit: Sendable {
     /// Fetches and parses a single page.
     ///
     /// ```swift
-    /// let page = try await hermit.scrape("https://example.com/article") {
-    ///     $0.outputMarkdown = true
-    ///     $0.markdown.ignoreNav = true
-    ///     $0.extractions = ["author": ".byline"]
-    /// }
+    /// let config = ScrapeConfiguration(
+    ///     outputMarkdown: true,
+    ///     extractions: ["author": ".byline"]
+    /// )
+    /// let page = try await hermit.scrape("https://example.com/article", configuration: config)
     /// print(page.markdown!)
     /// ```
     ///
     /// - Parameters:
     ///   - url: The URL to fetch and parse.
-    ///   - configure: A closure to customise ``ScrapeConfiguration``.
+    ///   - configuration: The scrape configuration. Defaults to ``ScrapeConfiguration/default``.
     /// - Returns: A ``ScrapedPage`` with HTML, optional Markdown, metadata, and extractions.
     /// - Throws: ``HermitError`` if the request or parsing fails.
     public func scrape(
         _ url: URL,
-        configure: (inout ScrapeConfiguration) -> Void = { _ in }
+        configuration: ScrapeConfiguration = .default
     ) async throws -> ScrapedPage {
-        var config = ScrapeConfiguration.default
-        configure(&config)
         let scraper = Scraper(
-            httpClient: HermitHTTPClient(client: httpClient, config: config.network),
+            httpClient: HermitHTTPClient(client: httpClient, config: configuration.network),
             // Single-page scrapes are not rate-limited by default.
             rateLimiter: nil,
             markdownConverter: markdownConverter,
             processors: processors
         )
         logger.debug("Scraping single page", metadata: ["url": "\(url)"])
-        return try await scraper.scrape(url, configuration: config)
+        return try await scraper.scrape(url, configuration: configuration)
     }
 
     /// Scrapes a collection of URLs concurrently and streams results as they complete.
@@ -247,22 +235,20 @@ public final class Hermit: Sendable {
     ///
     /// - Parameters:
     ///   - urls: The URLs to scrape.
-    ///   - configure: A closure to customise ``ScrapeConfiguration``.
+    ///   - configuration: The scrape configuration. Defaults to ``ScrapeConfiguration/default``.
     /// - Returns: An `AsyncThrowingStream` of ``ScrapedPage`` values.
     public func scrapeStream(
         _ urls: some Collection<URL> & Sendable,
-        configure: (inout ScrapeConfiguration) -> Void = { _ in }
+        configuration: ScrapeConfiguration = .default
     ) -> AsyncThrowingStream<ScrapedPage, Error> {
-        var config = ScrapeConfiguration.default
-        configure(&config)
         let scraper = Scraper(
-            httpClient: HermitHTTPClient(client: httpClient, config: config.network),
+            httpClient: HermitHTTPClient(client: httpClient, config: configuration.network),
             rateLimiter: nil,
             markdownConverter: markdownConverter,
             processors: processors
         )
         logger.debug("Starting scrape stream", metadata: ["urlCount": "\(urls.count)"])
-        return scraper.scrapeStream(urls: urls, configuration: config)
+        return scraper.scrapeStream(urls: urls, configuration: configuration)
     }
 
     // MARK: Combined
@@ -273,10 +259,12 @@ public final class Hermit: Sendable {
     /// pages are then scraped concurrently, with results streamed as each finishes.
     ///
     /// ```swift
+    /// let crawlConfig = try CrawlConfiguration(maxDepth: 3, allowlist: ["/docs/"])
+    /// let scrapeConfig = ScrapeConfiguration(outputMarkdown: true)
     /// for try await page in hermit.crawlAndScrape(
     ///     "https://docs.example.com",
-    ///     crawl: { $0.maxDepth = 3; $0.allowlist = ["/docs/"] },
-    ///     scrape: { $0.outputMarkdown = true }
+    ///     crawl: crawlConfig,
+    ///     scrape: scrapeConfig
     /// ) {
     ///     index(url: page.url, content: page.markdown)
     /// }
@@ -284,48 +272,53 @@ public final class Hermit: Sendable {
     ///
     /// - Parameters:
     ///   - url: The seed URL for the crawl phase.
-    ///   - configureCrawl: A closure to customise ``CrawlConfiguration``.
-    ///   - configureScrape: A closure to customise ``ScrapeConfiguration``.
+    ///   - configuration: The crawl configuration for Phase 1.
+    ///   - scrapeConfiguration: The scrape configuration for Phase 2.
+    ///   - onCrawlFailure: A closure called for each page that failed during the crawl phase.
+    ///     Defaults to `nil` (failures are logged at debug level).
     /// - Returns: An `AsyncThrowingStream` of ``ScrapedPage`` values.
     public func crawlAndScrape(
         _ url: URL,
-        crawl configureCrawl: (inout CrawlConfiguration) -> Void = { _ in },
-        scrape configureScrape: (inout ScrapeConfiguration) -> Void = { _ in }
+        configuration: CrawlConfiguration = .default,
+        scrapeConfiguration: ScrapeConfiguration = .default,
+        onCrawlFailure: (@Sendable (CrawledPage) -> Void)? = nil
     ) -> AsyncThrowingStream<ScrapedPage, Error> {
-        var crawlConfig = CrawlConfiguration.default
-        configureCrawl(&crawlConfig)
-        var scrapeConfig = ScrapeConfiguration.default
-        configureScrape(&scrapeConfig)
-
-        let rateLimiter = crawlConfig.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
+        let rateLimiter = configuration.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
         let crawler = Crawler(
-            httpClient: HermitHTTPClient(client: httpClient, config: crawlConfig.network),
+            httpClient: HermitHTTPClient(client: httpClient, config: configuration.network),
             rateLimiter: rateLimiter,
             captureHTML: true,
-            filters: crawlConfig.filters
+            filters: configuration.filters
         )
         let scraper = Scraper(
-            httpClient: HermitHTTPClient(client: httpClient, config: scrapeConfig.network),
+            httpClient: HermitHTTPClient(client: httpClient, config: scrapeConfiguration.network),
             // Share the rate limiter so crawl and scrape requests are throttled together.
             rateLimiter: rateLimiter,
             markdownConverter: markdownConverter,
             processors: processors
         )
 
+        let onCrawlFailure = onCrawlFailure  // explicit sendable capture
+
         return AsyncThrowingStream { continuation in
-            Task { [crawlConfig, scrapeConfig] in
+            Task { [configuration, scrapeConfiguration, onCrawlFailure] in
                 do {
                     // Phase 1: crawl all pages to build the complete URL list.
                     logger.debug("crawlAndScrape phase 1: crawling", metadata: ["seed": "\(url)"])
-                    let crawled = try await self.collectCrawl(crawler: crawler, seed: url, config: crawlConfig)
+                    let crawled = try await self.collectCrawl(
+                        crawler: crawler,
+                        seed: url,
+                        config: configuration,
+                        onFailure: onCrawlFailure
+                    )
                     // Phase 2: scrape all discovered pages concurrently, yielding as each finishes.
                     logger.debug("crawlAndScrape phase 2: scraping", metadata: ["pageCount": "\(crawled.count)"])
                     try await withThrowingTaskGroup(of: ScrapedPage.self) { group in
                         for page in crawled {
                             if let html = page.html, let statusCode = page.statusCode {
-                                group.addTask { try await scraper.scrapeFromHTML(page.url, html: html, statusCode: statusCode, headers: page.responseHeaders, configuration: scrapeConfig) }
+                                group.addTask { try await scraper.scrapeFromHTML(page.url, html: html, statusCode: statusCode, headers: page.responseHeaders, configuration: scrapeConfiguration) }
                             } else {
-                                group.addTask { try await scraper.scrape(page.url, configuration: scrapeConfig) }
+                                group.addTask { try await scraper.scrape(page.url, configuration: scrapeConfiguration) }
                             }
                         }
                         for try await scraped in group {
@@ -347,11 +340,17 @@ public final class Hermit: Sendable {
     private func collectCrawl(
         crawler: Crawler,
         seed: URL,
-        config: CrawlConfiguration
+        config: CrawlConfiguration,
+        onFailure: (@Sendable (CrawledPage) -> Void)?
     ) async throws -> [CrawledPage] {
         var pages: [CrawledPage] = []
         for try await page in crawler.crawlStream(seed: seed, configuration: config) {
-            if page.error == nil { pages.append(page) }
+            if let error = page.error {
+                logger.debug("Crawl page failed, skipping scrape", metadata: ["url": "\(page.url)", "error": "\(error)"])
+                onFailure?(page)
+            } else {
+                pages.append(page)
+            }
         }
         return pages
     }
