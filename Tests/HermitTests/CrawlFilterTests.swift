@@ -32,6 +32,140 @@ private func makeResponse(
     )
 }
 
+// MARK: - BinaryContentFilter
+
+@Suite("BinaryContentFilter")
+struct BinaryContentFilterTests {
+    let filter = BinaryContentFilter()
+
+    @Test func allowsHTML() async {
+        let response = makeResponse(body: "<html><body><h1>Hello</h1></body></html>")
+        #expect(await filter.allow(response) == .allow)
+    }
+
+    @Test func allowsEmptyBody() async {
+        let response = makeResponse(body: "")
+        #expect(await filter.allow(response) == .allow)
+    }
+
+    @Test func allowsShortBody() async {
+        // 3 bytes is below the 4-byte signature floor; we pass it through.
+        let response = makeResponse(body: "abc")
+        #expect(await filter.allow(response) == .allow)
+    }
+
+    @Test func allowsMissingBody() async {
+        let response = makeResponse(body: nil)
+        #expect(await filter.allow(response) == .allow)
+    }
+
+    @Test func rejectsPDF() async {
+        let response = makeResponse(body: "%PDF-1.6\n%\u{fffd}\u{fffd}\u{fffd}\u{fffd}\n322 0 obj\n<<...>>")
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsPNG() async {
+        let bytes: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00]
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsJPEG() async {
+        let bytes: [UInt8] = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsGzip() async {
+        let bytes: [UInt8] = [0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00]
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsZIP() async {
+        let bytes: [UInt8] = [0x50, 0x4B, 0x03, 0x04, 0x14, 0x00]
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsWOFF() async {
+        let bytes: [UInt8] = [0x77, 0x4F, 0x46, 0x46, 0x00, 0x01, 0x00, 0x00]
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsWOFF2() async {
+        let bytes: [UInt8] = [0x77, 0x4F, 0x46, 0x32, 0x00, 0x01, 0x00, 0x00]
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsWebP() async {
+        // RIFF + 4 size bytes + WEBP. The longest signature we recognise.
+        var bytes: [UInt8] = [0x52, 0x49, 0x46, 0x46]
+        bytes.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
+        bytes.append(contentsOf: [0x57, 0x45, 0x42, 0x50])
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsRealWebP() async {
+        // Real WebP: RIFF, then a non-zero little-endian size, then WEBP.
+        // The size field is 0x00260000 = 2,539,520 — i.e. a real file size, not zero.
+        var bytes: [UInt8] = [0x52, 0x49, 0x46, 0x46]
+        bytes.append(contentsOf: [0x26, 0x00, 0x00, 0x00])
+        bytes.append(contentsOf: [0x57, 0x45, 0x42, 0x50])
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsMP4() async {
+        // ISO BMFF layout: 4-byte size (big-endian) + "ftyp" + major brand.
+        // 0x00000018 = 24-byte box, "ftyp" at offset 4, "mp42" at offset 8.
+        var bytes: [UInt8] = [0x00, 0x00, 0x00, 0x18]
+        bytes.append(contentsOf: [0x66, 0x74, 0x79, 0x70])
+        bytes.append(contentsOf: [0x6D, 0x70, 0x34, 0x32])  // "mp42"
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsAVIF() async {
+        // ISO BMFF with "ftyp" at offset 4 and "avif" major brand at offset 8.
+        var bytes: [UInt8] = [0x00, 0x00, 0x00, 0x20]
+        bytes.append(contentsOf: [0x66, 0x74, 0x79, 0x70])
+        bytes.append(contentsOf: [0x61, 0x76, 0x69, 0x66])  // "avif"
+        let body = String(bytes: bytes, encoding: .isoLatin1) ?? ""
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func rejectsBinaryByNULByte() async {
+        // Not a known signature, but a NUL byte in the first 512 bytes.
+        let response = makeResponse(body: "garbage\u{0000}with-null-byte-in-the-middle")
+        #expect(await filter.allow(response) == .reject)
+    }
+
+    @Test func allowsUnicodeHTML() async {
+        // UTF-8 bytes — high-bit characters but no NUL, no binary signature.
+        let body = "<html><body><p>Café 🎉</p></body></html>"
+        let response = makeResponse(body: body)
+        #expect(await filter.allow(response) == .allow)
+    }
+
+    @Test func requirementsIsBody() {
+        #expect(filter.requirements == .body)
+    }
+}
+
 // MARK: - ContentTypeFilter
 
 @Suite("ContentTypeFilter")

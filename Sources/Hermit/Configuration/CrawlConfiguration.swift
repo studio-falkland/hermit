@@ -74,18 +74,20 @@ public struct CrawlConfiguration: Sendable {
     /// declares its data requirements via ``CrawlFilter/requirements``; the crawler
     /// makes the minimal request needed to satisfy all filters (none, HEAD, or GET).
     ///
-    /// Defaults to rejecting non-HTML content types and error status codes.
+    /// Defaults to rejecting non-HTML content types and binary bodies.
     ///
     /// ```swift
     /// hermit.crawl("https://example.com") {
     ///     $0.filters = [
     ///         ContentTypeFilter(),
+    ///         BinaryContentFilter(),
     ///         StatusCodeFilter(),
     ///     ]
     /// }
     /// ```
     public var filters: [any CrawlFilter] = [
         ContentTypeFilter(),
+        BinaryContentFilter(),
         StatusCodeFilter(),
     ]
 
