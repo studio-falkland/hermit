@@ -222,49 +222,54 @@ struct Crawler: Sendable {
         // Phase 2 & 3: issue the minimal request that satisfies all filters.
         // If any filter needs the body, issue a GET and reuse it for both body filters
         // and the crawl. Otherwise, issue a HEAD for header filters, then a separate
-        // crawl GET.
+        // crawl GET. The GET response is re-validated against the header filters because
+        // HEAD and GET can disagree (e.g. a routing URL whose HEAD returns text/html but
+        // whose GET redirects to application/pdf). The helper `runResponseFilters` is
+        // the single place that turns a `.reject` into a `FilterRejection`, so the
+        // re-validation step is hard to forget in future branches.
         if maxRequirement == .body {
             // Phase 3: GET (also satisfies Phase 2).
             let response = try await httpClient.get(url)
-            let context = Self.context(from: response)
-
-            // Run header filters against the GET response (which has headers).
-            for filter in headerFilters {
-                if case .reject = await filter.allow(response) {
-                    throw FilterRejection(
-                        filterName: String(describing: type(of: filter)),
-                        context: context
-                    )
-                }
-            }
-            // Run body filters.
-            for filter in bodyFilters {
-                if case .reject = await filter.allow(response) {
-                    throw FilterRejection(
-                        filterName: String(describing: type(of: filter)),
-                        context: context
-                    )
-                }
-            }
+            try await Self.runResponseFilters(headerFilters, against: response)
+            try await Self.runResponseFilters(bodyFilters, against: response)
             // Reuse this GET response for the crawl — no second request.
             return response
         } else if maxRequirement == .headers {
-            // Phase 2: HEAD only.
-            let response = try await httpClient.head(url)
-            let context = Self.context(from: response)
-            for filter in headerFilters {
-                if case .reject = await filter.allow(response) {
-                    throw FilterRejection(
-                        filterName: String(describing: type(of: filter)),
-                        context: context
-                    )
-                }
-            }
-            // No body filters; issue the normal crawl GET.
-            return try await httpClient.get(url)
+            // Phase 2: HEAD first.
+            let headResponse = try await httpClient.head(url)
+            try await Self.runResponseFilters(headerFilters, against: headResponse)
+            // Issue the crawl GET.
+            let getResponse = try await httpClient.get(url)
+            // Re-validate against the GET response: HEAD and GET may disagree
+            // when the URL is a router/redirector.
+            try await Self.runResponseFilters(headerFilters, against: getResponse)
+            return getResponse
         } else {
             // Only URL filters (or no filters at all). Issue the crawl GET directly.
             return try await httpClient.get(url)
+        }
+    }
+
+    /// Evaluates a batch of filters against a single response, throwing
+    /// ``FilterRejection`` on the first rejection.
+    ///
+    /// This is the single place that turns a `.reject` decision into a thrown
+    /// ``FilterRejection``, so every code path that runs filters does so the
+    /// same way. The re-validation step in ``runFilters(url:)`` is a deliberate
+    /// duplicate call to this method, not a separate implementation, so the
+    /// GET-response re-check cannot drift from the original HEAD/GET check.
+    private static func runResponseFilters(
+        _ filters: [any CrawlFilter],
+        against response: HTTPClient.Response
+    ) async throws {
+        let context = Self.context(from: response)
+        for filter in filters {
+            if case .reject = await filter.allow(response) {
+                throw FilterRejection(
+                    filterName: String(describing: type(of: filter)),
+                    context: context
+                )
+            }
         }
     }
 
