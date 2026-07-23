@@ -179,15 +179,53 @@ public final class Hermit: Sendable {
         _ url: URL,
         configuration: CrawlConfiguration = .default
     ) -> AsyncThrowingStream<CrawledPage, Error> {
-        // Build the rate limiter only if a limit was set; nil means no throttling.
         let rateLimiter = configuration.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
-        let crawler = Crawler(
-            httpClient: HermitHTTPClient(client: httpClient, config: configuration.network),
-            rateLimiter: rateLimiter,
-            filters: configuration.filters
-        )
+        let httpClient = HermitHTTPClient(client: httpClient, config: configuration.network)
+
         logger.debug("Starting crawl stream", metadata: ["seed": "\(url)", "maxDepth": "\(configuration.maxDepth)", "maxPages": "\(configuration.maxPages == .max ? "unlimited" : "\(configuration.maxPages)")", "concurrency": "\(configuration.concurrency)"])
-        return crawler.crawlStream(seed: url, configuration: configuration)
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let driver = CrawlDriver(
+                        seed: url,
+                        config: configuration,
+                        httpClient: httpClient,
+                        rateLimiter: rateLimiter
+                    )
+                    try await withThrowingTaskGroup(of: CrawledPage.self) { group in
+                        // Initial burst: fill up to the configured concurrency limit.
+                        for _ in 0..<Int(configuration.concurrency) {
+                            guard case .fetch(let u, let d) = await driver.next() else { break }
+                            group.addTask {
+                                try await driver.rateLimiter?.acquire()
+                                return await driver.fetchPage(url: u, depth: d)
+                            }
+                        }
+
+                        // Drain loop: process one result, refill one task.
+                        for try await page in group {
+                            continuation.yield(page)
+                            switch await driver.complete(page) {
+                            case .fetch(let u, let d):
+                                group.addTask {
+                                    try await driver.rateLimiter?.acquire()
+                                    return await driver.fetchPage(url: u, depth: d)
+                                }
+                            case .idle:
+                                break
+                            case .done:
+                                group.cancelAll()
+                                return
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     // MARK: Scrape
@@ -253,10 +291,23 @@ public final class Hermit: Sendable {
 
     // MARK: Combined
 
-    /// Crawls a site and scrapes every discovered page, streaming results as they complete.
+    /// Crawls a site and scrapes every discovered page in a single merged pipeline.
     ///
-    /// The crawl phase runs to completion first, building the full URL list. All discovered
-    /// pages are then scraped concurrently, with results streamed as each finishes.
+    /// Crawl and scrape tasks share a single ``ThrowingTaskGroup``. As each page is
+    /// crawled, it is immediately enqueued for scraping — there is no separate "collect
+    /// all, then scrape all" phase. This means:
+    ///
+    /// - **Lower memory**: HTML bodies are held only until their scrape completes,
+    ///   rather than accumulating every page before any scraping begins.
+    /// - **Sooner first result**: The first ``ScrapedPage`` is yielded as soon as the
+    ///   first page is crawled and scraped, not after the entire crawl finishes.
+    /// - **Overlapped work**: CPU-bound parsing and markdown conversion overlap with
+    ///   network-bound crawl fetches.
+    ///
+    /// Scrape concurrency is bounded to ``CrawlConfiguration/concurrency`` so that
+    /// CPU-bound scrape work does not pile up unboundedly when crawling outpaces
+    /// scraping. The shared rate limiter (when configured) governs the combined rate
+    /// of crawl and scrape HTTP requests.
     ///
     /// ```swift
     /// let crawlConfig = try CrawlConfiguration(maxDepth: 3, allowlist: ["/docs/"])
@@ -271,10 +322,10 @@ public final class Hermit: Sendable {
     /// ```
     ///
     /// - Parameters:
-    ///   - url: The seed URL for the crawl phase.
-    ///   - configuration: The crawl configuration for Phase 1.
-    ///   - scrapeConfiguration: The scrape configuration for Phase 2.
-    ///   - onCrawlFailure: A closure called for each page that failed during the crawl phase.
+    ///   - url: The seed URL for the crawl.
+    ///   - configuration: The crawl configuration.
+    ///   - scrapeConfiguration: The scrape configuration.
+    ///   - onCrawlFailure: A closure called for each page that failed during the crawl.
     ///     Defaults to `nil` (failures are logged at debug level).
     /// - Returns: An `AsyncThrowingStream` of ``ScrapedPage`` values.
     public func crawlAndScrape(
@@ -284,12 +335,7 @@ public final class Hermit: Sendable {
         onCrawlFailure: (@Sendable (CrawledPage) -> Void)? = nil
     ) -> AsyncThrowingStream<ScrapedPage, Error> {
         let rateLimiter = configuration.requestsPerSecond.map { RateLimiter(requestsPerSecond: $0) }
-        let crawler = Crawler(
-            httpClient: HermitHTTPClient(client: httpClient, config: configuration.network),
-            rateLimiter: rateLimiter,
-            captureHTML: true,
-            filters: configuration.filters
-        )
+        let crawlHTTPClient = HermitHTTPClient(client: httpClient, config: configuration.network)
         let scraper = Scraper(
             httpClient: HermitHTTPClient(client: httpClient, config: scrapeConfiguration.network),
             // Share the rate limiter so crawl and scrape requests are throttled together.
@@ -303,26 +349,91 @@ public final class Hermit: Sendable {
         return AsyncThrowingStream { continuation in
             Task { [configuration, scrapeConfiguration, onCrawlFailure] in
                 do {
-                    // Phase 1: crawl all pages to build the complete URL list.
-                    logger.debug("crawlAndScrape phase 1: crawling", metadata: ["seed": "\(url)"])
-                    let crawled = try await self.collectCrawl(
-                        crawler: crawler,
-                        seed: url,
-                        config: configuration,
-                        onFailure: onCrawlFailure
+                    let crawlConfig = try CrawlConfiguration(
+                        maxDepth: configuration.maxDepth,
+                        maxPages: configuration.maxPages,
+                        stayOnDomain: configuration.stayOnDomain,
+                        includeSubdomains: configuration.includeSubdomains,
+                        concurrency: configuration.concurrency,
+                        requestsPerSecond: configuration.requestsPerSecond,
+                        allowlist: configuration.allowlist,
+                        denylist: configuration.denylist,
+                        respectRobotsTxt: configuration.respectRobotsTxt,
+                        filters: configuration.filters,
+                        captureHTML: true,
+                        network: configuration.network
                     )
-                    // Phase 2: scrape all discovered pages concurrently, yielding as each finishes.
-                    logger.debug("crawlAndScrape phase 2: scraping", metadata: ["pageCount": "\(crawled.count)"])
-                    try await withThrowingTaskGroup(of: ScrapedPage.self) { group in
-                        for page in crawled {
-                            if let html = page.html, let statusCode = page.statusCode {
-                                group.addTask { try await scraper.scrapeFromHTML(page.url, html: html, statusCode: statusCode, headers: page.responseHeaders, configuration: scrapeConfiguration) }
-                            } else {
-                                group.addTask { try await scraper.scrape(page.url, configuration: scrapeConfiguration) }
+                    let driver = CrawlDriver(
+                        seed: url,
+                        config: crawlConfig,
+                        httpClient: crawlHTTPClient,
+                        rateLimiter: rateLimiter
+                    )
+                    let concurrency = Int(configuration.concurrency)
+                    let scrapeCap = concurrency  // bounded to the same concurrency as crawl
+
+                    try await withThrowingTaskGroup(of: CrawlScrapeStep.self) { group in
+                        // Seed initial crawl tasks.
+                        for _ in 0..<concurrency {
+                            guard case .fetch(let u, let d) = await driver.next() else { break }
+                            group.addTask {
+                                try await driver.rateLimiter?.acquire()
+                                return .crawled(await driver.fetchPage(url: u, depth: d))
                             }
                         }
-                        for try await scraped in group {
-                            continuation.yield(scraped)
+
+                        var pending: [CrawledPage] = []
+                        var scrapeInFlight = 0
+                        var crawlDone = false
+
+                        // Helper to dispatch as many scrape tasks as the cap allows.
+                        func dispatchScrapes() {
+                            while scrapeInFlight < scrapeCap, !pending.isEmpty {
+                                let page = pending.removeFirst()
+                                scrapeInFlight += 1
+                                group.addTask {
+                                    if let html = page.html, let statusCode = page.statusCode {
+                                        try await .scraped(scraper.scrapeFromHTML(page.url, html: html, statusCode: statusCode, headers: page.responseHeaders, configuration: scrapeConfiguration))
+                                    } else {
+                                        try await .scraped(scraper.scrape(page.url, configuration: scrapeConfiguration))
+                                    }
+                                }
+                            }
+                        }
+
+                        for try await step in group {
+                            switch step {
+                            case .crawled(let page):
+                                if let error = page.error {
+                                    logger.debug("Crawl page failed, skipping scrape", metadata: ["url": "\(page.url)", "error": "\(error)"])
+                                    onCrawlFailure?(page)
+                                } else {
+                                    pending.append(page)
+                                }
+
+                                // Refill: if the frontier has more work, add a crawl task.
+                                if !crawlDone {
+                                    switch await driver.complete(page) {
+                                    case .fetch(let u, let d):
+                                        group.addTask {
+                                            try await driver.rateLimiter?.acquire()
+                                            return .crawled(await driver.fetchPage(url: u, depth: d))
+                                        }
+                                    case .idle:
+                                        break
+                                    case .done:
+                                        crawlDone = true
+                                        // Do NOT cancel the group — scrape tasks may still be running.
+                                    }
+                                }
+
+                                dispatchScrapes()
+
+                            case .scraped(let scraped):
+                                scrapeInFlight -= 1
+                                continuation.yield(scraped)
+                                dispatchScrapes()
+                            }
                         }
                     }
                     continuation.finish()
@@ -331,27 +442,5 @@ public final class Hermit: Sendable {
                 }
             }
         }
-    }
-
-    /// Runs a full crawl and collects only the successfully fetched pages into an array.
-    ///
-    /// Used by ``crawlAndScrape(_:crawl:scrape:)`` to materialise the URL list before
-    /// starting the scrape phase.
-    private func collectCrawl(
-        crawler: Crawler,
-        seed: URL,
-        config: CrawlConfiguration,
-        onFailure: (@Sendable (CrawledPage) -> Void)?
-    ) async throws -> [CrawledPage] {
-        var pages: [CrawledPage] = []
-        for try await page in crawler.crawlStream(seed: seed, configuration: config) {
-            if let error = page.error {
-                logger.debug("Crawl page failed, skipping scrape", metadata: ["url": "\(page.url)", "error": "\(error)"])
-                onFailure?(page)
-            } else {
-                pages.append(page)
-            }
-        }
-        return pages
     }
 }

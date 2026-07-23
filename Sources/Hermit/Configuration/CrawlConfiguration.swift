@@ -80,6 +80,13 @@ public struct CrawlConfiguration: Sendable {
     /// ```
     public let filters: [any CrawlFilter]
 
+    /// When `true`, the raw HTML body is retained in ``CrawledPage/html`` after fetching.
+    ///
+    /// Used by ``Hermit/crawlAndScrape(_:configuration:scrapeConfiguration:onCrawlFailure:)``
+    /// so the scrape phase can reuse the already-fetched body without a second HTTP request.
+    /// Defaults to `false`.
+    public let captureHTML: Bool
+
     /// HTTP-level settings such as user agent, timeout, and custom headers.
     public let network: NetworkConfiguration
 
@@ -96,6 +103,7 @@ public struct CrawlConfiguration: Sendable {
     ///   - denylist: URL patterns that block matching pages (default: `[]`).
     ///   - respectRobotsTxt: Fetch and respect `robots.txt` (default: `true`).
     ///   - filters: Response-level filters (default: `[ContentTypeFilter(), BinaryContentFilter(), StatusCodeFilter()]`).
+    ///   - captureHTML: Retain raw HTML body for scrape reuse (default: `false`).
     ///   - network: HTTP-level settings (default: `.default`).
     /// - Throws: ``HermitError/invalidConfiguration(_:)`` if any value is invalid.
     public init(
@@ -113,6 +121,7 @@ public struct CrawlConfiguration: Sendable {
             BinaryContentFilter(),
             StatusCodeFilter(),
         ],
+        captureHTML: Bool = false,
         network: NetworkConfiguration = .default
     ) throws {
         guard concurrency > 0 else {
@@ -136,6 +145,7 @@ public struct CrawlConfiguration: Sendable {
         self.denylist = denylist
         self.respectRobotsTxt = respectRobotsTxt
         self.filters = filters
+        self.captureHTML = captureHTML
         self.network = network
     }
 

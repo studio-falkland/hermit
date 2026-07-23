@@ -3,7 +3,7 @@ import Logging
 
 /// Enforces domain-level crawl restrictions based on the seed URL's host.
 ///
-/// Used by ``CrawlFrontier`` to decide whether a discovered link should be enqueued.
+/// Used by ``CrawlDriver`` to decide whether a discovered link should be enqueued.
 /// Configured by ``CrawlConfiguration/stayOnDomain`` and ``CrawlConfiguration/includeSubdomains``.
 private let logger = Logger(label: "Hermit.DomainPolicy")
 
